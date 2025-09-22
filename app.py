@@ -32,7 +32,7 @@ except ImportError:
 
 
 def check_login():
-    """Handle login authentication - Secure version with secrets.toml"""
+    """Handle login authentication - Enhanced with viewer support"""
     if 'authenticated' not in st.session_state:
         st.session_state.authenticated = False
 
@@ -84,9 +84,9 @@ def check_login():
             with st.form("login_form"):
                 st.subheader("🔐 Secure Login")
 
-                username = st.text_input("Username", placeholder="Enter username", key="login_username")
+                username = st.text_input("Username", placeholder="Enter username", key="login_username_input")
                 password = st.text_input("Password", type="password", placeholder="Enter password",
-                                         key="login_password")
+                                         key="login_password_input")
 
                 col_a, col_b = st.columns(2)
                 with col_a:
@@ -95,7 +95,15 @@ def check_login():
                     contact_button = st.form_submit_button("📧 Contact Admin", use_container_width=True)
 
                 if login_button:
-                    # Try to get credentials from secrets first, fallback to hardcoded
+                    # Define viewer accounts - these see only results
+                    VIEWER_ACCOUNTS = {
+                        'viewer': 'view123',
+                        'client': 'client456',
+                        'results': 'results789',
+                        'readonly': 'readonly123'
+                    }
+
+                    # Try to get regular credentials from secrets first, fallback to hardcoded
                     try:
                         # Try using Streamlit secrets (for cloud deployment)
                         correct_username = st.secrets["username"]
@@ -105,9 +113,20 @@ def check_login():
                         correct_username = "Arthur"
                         correct_password = "trapezoid"
 
+                    # Check regular login (full access)
                     if username == correct_username and password == correct_password:
                         st.session_state.authenticated = True
-                        st.success("✅ Login successful! Loading platform...")
+                        st.session_state.login_username = username
+                        st.session_state.is_viewer = False  # Regular user
+                        st.success("✅ Login successful! Loading full platform...")
+                        time.sleep(1)
+                        st.rerun()
+                    # Check viewer login (results only)
+                    elif username in VIEWER_ACCOUNTS and password == VIEWER_ACCOUNTS[username]:
+                        st.session_state.authenticated = True
+                        st.session_state.login_username = username
+                        st.session_state.is_viewer = True  # Viewer user
+                        st.success("✅ Login successful! Loading results viewer...")
                         time.sleep(1)
                         st.rerun()
                     else:
@@ -133,11 +152,640 @@ def check_login():
 def logout():
     """Handle logout"""
     st.session_state.authenticated = False
+    st.session_state.login_username = ''
+    st.session_state.is_viewer = False
     st.rerun()
 
 # ============================================================================
 # ENHANCED DATA STRUCTURES - COMPLETE WITH ALL PROFESSIONAL FEATURES
 # ============================================================================
+
+# ============================================================================
+# RESULT VIEWER LOGIN SYSTEM - ADD THIS AFTER check_login() FUNCTION
+# ============================================================================
+
+def check_results_viewer_login():
+    """Special login check for users who just want to view cached results"""
+
+    if not st.session_state.get('authenticated', False):
+        return False
+
+    # Get the username that was used to login
+    username = st.session_state.get('login_username', '')
+
+    # Define result viewer credentials
+    # You can modify these or load from secrets.toml
+    RESULT_VIEWER_ACCOUNTS = {
+        'viewer': 'view123',
+        'client': 'client456',
+        'results': 'results789',
+        'readonly': 'readonly123'
+    }
+
+    # Check if current user is a viewer account
+    if username.lower() in RESULT_VIEWER_ACCOUNTS:
+        return True
+
+    return False
+
+
+def render_cached_results_viewer():
+    """Complete result viewer interface for client accounts"""
+
+    # Set page config for viewer mode
+    st.set_page_config(
+        page_title="APEX AI - Analysis Results Viewer",
+        page_icon="📊",
+        layout="wide",
+        initial_sidebar_state="collapsed"
+    )
+
+    # Apply professional theme
+    apply_professional_theme()
+
+    # Header
+    st.title("📊 APEX AI - Analysis Results Viewer")
+    st.markdown("**Pre-computed Professional Analysis Results - Updated Automatically**")
+
+    # Top controls
+    col1, col2, col3 = st.columns([1, 1, 2])
+
+    with col1:
+        if st.button("🚪 Logout", type="primary", key="viewer_logout"):
+            st.session_state.authenticated = False
+            st.session_state.login_username = ''
+            st.rerun()
+
+    with col2:
+        if st.button("🔄 Refresh", key="viewer_refresh"):
+            st.rerun()
+
+    with col3:
+        username = st.session_state.get('login_username', 'User')
+        st.info(f"👤 Logged in as: **{username}** (Viewer Mode)")
+
+    st.divider()
+
+    # Check for results directory and files
+    results_dir = Path("scheduled_results")
+    results_dir.mkdir(exist_ok=True)
+
+    latest_file = results_dir / "latest_results.csv"
+    metadata_file = results_dir / "metadata.json"
+
+    # If no results exist, create sample data
+    if not latest_file.exists():
+        st.warning("⚠️ No pre-computed results available yet.")
+        st.info("📋 Generating sample results for demonstration...")
+
+        # Create sample results
+        sample_results = create_sample_results()
+        sample_df = pd.DataFrame(sample_results)
+
+        # Save sample results
+        sample_df.to_csv(latest_file, index=False)
+
+        # Create sample metadata
+        sample_metadata = {
+            'last_run': datetime.now().isoformat(),
+            'result_count': len(sample_results),
+            'status': 'sample_data',
+            'timeframe': '4H'
+        }
+
+        with open(metadata_file, 'w') as f:
+            json.dump(sample_metadata, f, indent=2)
+
+        st.success("✅ Sample results created. Refreshing...")
+        time.sleep(1)
+        st.rerun()
+
+    # Load and display results
+    try:
+        results_df = pd.read_csv(latest_file)
+
+        # Load metadata if available
+        metadata = {}
+        if metadata_file.exists():
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+
+        # Display metadata metrics
+        st.subheader("📈 Analysis Summary")
+
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+
+        with col1:
+            if 'last_run' in metadata:
+                last_run = datetime.fromisoformat(metadata['last_run'])
+                time_diff = datetime.now() - last_run
+                hours_ago = time_diff.total_seconds() / 3600
+
+                if hours_ago < 1:
+                    minutes_ago = int(time_diff.total_seconds() / 60)
+                    st.metric("Last Update", f"{minutes_ago} min ago")
+                else:
+                    st.metric("Last Update", f"{hours_ago:.1f} hours ago")
+            else:
+                st.metric("Last Update", "Unknown")
+
+        with col2:
+            st.metric("Total Patterns", len(results_df))
+
+        with col3:
+            # Count today's patterns
+            today_count = 0
+            if "Is Today's Pattern" in results_df.columns:
+                today_count = len(results_df[results_df["Is Today's Pattern"] == "YES"])
+            st.metric("Today's Patterns", today_count)
+
+        with col4:
+            # Count unique symbols
+            if "Symbol" in results_df.columns:
+                unique_symbols = results_df["Symbol"].nunique()
+                st.metric("Symbols", unique_symbols)
+            else:
+                st.metric("Symbols", "N/A")
+
+        with col5:
+            st.metric("Timeframe", metadata.get('timeframe', '4H'))
+
+        with col6:
+            status = metadata.get('status', 'unknown')
+            if status == 'success':
+                st.metric("Status", "✅ Live Data")
+            elif status == 'sample_data':
+                st.metric("Status", "📊 Sample Data")
+            else:
+                st.metric("Status", "⚠️ Check Status")
+
+        st.divider()
+
+        # Filter controls
+        st.subheader("🔍 Filter Options")
+
+        filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
+
+        with filter_col1:
+            # Symbol filter
+            if "Symbol" in results_df.columns:
+                all_symbols = ["All"] + sorted(results_df["Symbol"].unique().tolist())
+                selected_symbol = st.selectbox("Symbol", all_symbols, key="viewer_symbol_filter")
+            else:
+                selected_symbol = "All"
+
+        with filter_col2:
+            # Pattern filter
+            if "Pattern Type" in results_df.columns:
+                all_patterns = ["All"] + sorted(results_df["Pattern Type"].unique().tolist())
+                selected_pattern = st.selectbox("Pattern", all_patterns, key="viewer_pattern_filter")
+            else:
+                selected_pattern = "All"
+
+        with filter_col3:
+            # Today's patterns filter
+            show_today_only = st.checkbox("Today's Patterns Only", value=False, key="viewer_today_filter")
+
+        with filter_col4:
+            # Trade outcome filter
+            if "Trade Outcome" in results_df.columns:
+                all_outcomes = ["All"] + sorted(results_df["Trade Outcome"].unique().tolist())
+                selected_outcome = st.selectbox("Outcome", all_outcomes, key="viewer_outcome_filter")
+            else:
+                selected_outcome = "All"
+
+        # Apply filters
+        filtered_df = results_df.copy()
+
+        if selected_symbol != "All" and "Symbol" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["Symbol"] == selected_symbol]
+
+        if selected_pattern != "All" and "Pattern Type" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["Pattern Type"] == selected_pattern]
+
+        if show_today_only and "Is Today's Pattern" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["Is Today's Pattern"] == "YES"]
+
+        if selected_outcome != "All" and "Trade Outcome" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["Trade Outcome"] == selected_outcome]
+
+        st.divider()
+
+        # Display filtered results
+        if not filtered_df.empty:
+            # Today's patterns section
+            if "Is Today's Pattern" in filtered_df.columns:
+                today_df = filtered_df[filtered_df["Is Today's Pattern"] == "YES"]
+
+                if not today_df.empty:
+                    st.subheader(f"🎯 Today's Patterns ({len(today_df)} found)")
+
+                    # Highlight today's patterns
+                    st.dataframe(
+                        today_df,
+                        use_container_width=True,
+                        height=min(200, len(today_df) * 35 + 50)
+                    )
+
+                    st.divider()
+
+            # All results section
+            st.subheader(f"📋 All Analysis Results ({len(filtered_df)} patterns)")
+
+            # Download section
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # Download filtered results
+                csv = filtered_df.to_csv(index=False)
+                st.download_button(
+                    label=f"📥 Download Filtered Results ({len(filtered_df)} rows)",
+                    data=csv,
+                    file_name=f"apex_filtered_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+
+            with col2:
+                # Download all results
+                all_csv = results_df.to_csv(index=False)
+                st.download_button(
+                    label=f"📥 Download All Results ({len(results_df)} rows)",
+                    data=all_csv,
+                    file_name=f"apex_all_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+
+            # Display the filtered dataframe
+            st.dataframe(
+                filtered_df,
+                use_container_width=True,
+                height=600
+            )
+
+            # Pattern statistics
+            st.divider()
+            st.subheader("📊 Pattern Statistics")
+
+            if "Pattern Type" in filtered_df.columns:
+                pattern_counts = filtered_df["Pattern Type"].value_counts()
+
+                stat_col1, stat_col2 = st.columns(2)
+
+                with stat_col1:
+                    st.write("**Pattern Distribution:**")
+                    for pattern, count in pattern_counts.items():
+                        percentage = (count / len(filtered_df)) * 100
+                        st.write(f"• {pattern}: {count} ({percentage:.1f}%)")
+
+                with stat_col2:
+                    if "Trade Outcome" in filtered_df.columns:
+                        st.write("**Outcome Distribution:**")
+                        outcome_counts = filtered_df["Trade Outcome"].value_counts()
+                        for outcome, count in outcome_counts.items():
+                            percentage = (count / len(filtered_df)) * 100
+                            st.write(f"• {outcome}: {count} ({percentage:.1f}%)")
+
+        else:
+            st.warning("⚠️ No results match the selected filters.")
+
+        # Footer information
+        st.divider()
+        st.info("""
+        📊 **Result Viewer Mode Information:**
+        - Results are pre-computed automatically every 4 hours
+        - This is a read-only view of the latest analysis results
+        - For full analysis capabilities, please use a standard account
+        - Contact administrator for any questions or issues
+        """)
+
+        # Auto-refresh option
+        auto_refresh = st.checkbox("Auto-refresh every 30 seconds", value=False, key="viewer_auto_refresh")
+
+        if auto_refresh:
+            time.sleep(30)
+            st.rerun()
+
+    except Exception as e:
+        st.error(f"❌ Error loading results: {str(e)}")
+        st.info("Please contact your administrator if this issue persists.")
+
+
+def create_sample_results():
+    """Create sample results for demonstration when no real data exists"""
+
+    # Sample data matching your analysis structure
+    symbols = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK']
+    patterns = ['Pin Bar', 'Bullish Engulfing', 'Morning Star']
+    outcomes = ['Success', 'Active', 'Stop Loss']
+
+    sample_data = []
+    today = datetime.now()
+
+    for i in range(20):
+        days_back = np.random.randint(0, 7)
+        pattern_date = today - timedelta(days=days_back)
+        is_today = "YES" if days_back == 0 else "NO"
+
+        sample_data.append({
+            "Symbol": np.random.choice(symbols),
+            "Timeframe": "4H",
+            "Pattern Type": np.random.choice(patterns),
+            "Pattern Date": pattern_date.strftime("%Y-%m-%d %H:%M"),
+            "Is Today's Pattern": is_today,
+            "Entry Price": f"{np.random.uniform(100, 3000):.4f}",
+            "Target Price": f"{np.random.uniform(100, 3000):.4f}",
+            "Stop Loss": f"{np.random.uniform(100, 3000):.4f}",
+            "Trade Outcome": np.random.choice(outcomes),
+            "Current Status": f"P&L: {np.random.uniform(-2, 5):.2f}%",
+            "Pattern Strength": f"{np.random.uniform(50, 90):.1f}%",
+            "Days Between": np.random.randint(1, 10),
+            "Distance %": f"{np.random.uniform(0.1, 2.0):.3f}%",
+            "Analysis Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+
+    return sample_data
+
+
+# ============================================================================
+# MODIFY YOUR EXISTING main() FUNCTION - REPLACE WITH THIS
+# ============================================================================
+
+def main():
+    """Main Professional AI Market Analysis Platform with Result Viewer Mode"""
+
+    # Check authentication first
+    check_login()
+
+    # Check if this is a viewer account
+    if st.session_state.get('is_viewer', False):
+        # Show simplified result viewer interface
+        render_cached_results_viewer()
+        return  # Exit here - don't load the full application
+
+    # OTHERWISE, CONTINUE WITH THE FULL APPLICATION FOR REGULAR USERS
+
+    # After authentication, set the wide layout for regular users
+    st.set_page_config(
+        page_title="🚀 APEX AI Technical Analysis Platform",
+        page_icon="🚀",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+
+    # Initialize session state and apply professional theme
+    init_session_state()
+    apply_professional_theme()
+
+    # Professional main title - Updated branding
+    st.title("🚀 APEX AI TECHNICAL ANALYSIS PLATFORM")
+    st.markdown(
+        "**Advanced Technical Analysis: AI-Powered Pattern Recognition + Smart Capital Management + Real-Time Processing + Professional Features 📊🧠**")
+
+    # Check TradingView availability
+    if not TV_AVAILABLE:
+        st.error("❌ TradingView DataFeed not available. Install with: `pip install tvDatafeed`")
+        st.stop()
+    else:
+        st.success("✅ APEX AI Analysis System Ready!")
+
+    # Professional features banner
+    st.markdown("""
+    <div class="feature-highlight">
+    <h3 style="color: #0066cc; margin: 0;">🧠 APEX AI FEATURES ACTIVE:</h3>
+    <p style="color: #5a6c7d; margin: 5px 0;">
+    ✅ DATE PICKER DATA DOWNLOADS | ✅ SMART BAR CALCULATION | ✅ TODAY'S REAL-TIME DATA | ✅ Advanced Swing Low Validation | ✅ Current Trade Status | ✅ Precision AI Detection | ✅ Professional Capital Management
+    </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Create professional application tabs
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "🔄 Data Management",
+        "📊 AI Pattern Analysis",
+        "💰 Capital Simulation",
+        "🔴 Real-Time Monitoring",
+        "⚙️ AI Configuration",
+        "📈 Analytics Dashboard"
+    ])
+
+    with tab1:
+        render_instrument_management()
+        st.divider()
+        render_data_management_tab()
+
+    with tab2:
+        render_analysis_tab()
+
+    with tab3:
+        render_capital_simulation_tab()
+
+    with tab4:
+        render_live_monitoring_tab()
+
+    with tab5:
+        render_settings_tab()
+
+    with tab6:
+        st.header("📈 Professional Analytics Dashboard")
+
+        if st.session_state.debug_info:
+            st.subheader("🔍 AI Analysis Performance Metrics")
+
+            # Special handling for today's patterns
+            today_patterns = st.session_state.debug_info.get('today_patterns_detected', 0)
+            if today_patterns > 0:
+                st.success(f"🎯 TODAY'S PATTERNS DETECTED: {today_patterns}")
+
+            debug_df = pd.DataFrame([
+                {"Metric": k, "Value": v}
+                for k, v in st.session_state.debug_info.items()
+            ])
+
+            create_download_buttons(debug_df, "ai_analytics_dashboard", "AI Analytics Report")
+            st.dataframe(debug_df, use_container_width=True)
+
+            # Show capital analytics if available
+            if 'capital_debug' in st.session_state.debug_info:
+                st.subheader("💰 Capital Management Analytics")
+                with st.expander("View AI Capital Management Logs"):
+                    for msg in st.session_state.debug_info['capital_debug']:
+                        st.text(msg)
+
+            # Show AI swing low analytics
+            if 'total_invalidated_swing_lows' in st.session_state.debug_info:
+                st.subheader("🔧 AI Swing Low Validation Analytics")
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Swing Lows", st.session_state.debug_info.get('total_swing_lows', 0))
+                with col2:
+                    st.metric("AI Invalidated", st.session_state.debug_info.get('total_invalidated_swing_lows', 0))
+                with col3:
+                    st.metric("Valid AI Signals", st.session_state.debug_info.get('total_valid_touches', 0))
+                with col4:
+                    st.metric("Today's Patterns", st.session_state.debug_info.get('today_patterns_detected', 0))
+        else:
+            st.info("No analytics data available. Run an AI analysis to see professional performance metrics.")
+
+    # Professional sidebar with logout button
+    with st.sidebar:
+        st.header("🎛️ APEX AI SYSTEM")
+
+        # Logout button at the top
+        if st.button("🚪 Logout", use_container_width=True, key="sidebar_logout"):
+            logout()
+
+        st.divider()
+
+        # Professional AI features status
+        st.markdown("""
+        <div class="professional-card">
+        <h4 style="color: #0066cc; margin: 0;">🧠 APEX AI FEATURES</h4>
+        <p style="color: #5a6c7d; font-size: 12px; margin: 5px 0;">
+        ✅ Date Picker Downloads<br>
+        ✅ Real-Time Analysis<br>
+        ✅ Pattern Recognition<br>
+        ✅ Smart Capital Management<br>
+        ✅ Advanced Validation
+        </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.divider()
+
+        # Date picker status
+        use_date_picker = st.session_state.get('use_date_picker', False)
+        if use_date_picker:
+            download_start_date = st.session_state.get('data_download_start_date', datetime.now() - timedelta(days=30))
+            st.success(f"📅 Date Picker: {download_start_date.strftime('%Y-%m-%d')}")
+        else:
+            st.info("📅 Default bar counts")
+
+        # Professional status indicators
+        st.markdown("""
+        <div class="professional-card">
+        <h4 style="color: #00cc88; margin: 0;">🔧 SYSTEM STATUS</h4>
+        <p style="color: #5a6c7d; font-size: 12px; margin: 5px 0;">
+        ✅ Advanced Swing Low Validation<br>
+        ✅ Real-Time Trade Monitoring<br>
+        ✅ Precision Entry/Exit Detection<br>
+        ✅ AI Signal Validation<br>
+        ✅ Date-Based Data Downloads
+        </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.divider()
+
+        # Instruments status
+        if st.session_state.instruments_list:
+            st.success(f"✅ {len(st.session_state.instruments_list)} instruments loaded")
+        else:
+            st.warning("⚠️ No instruments loaded")
+
+        # Pattern selection status
+        selected_patterns_count = sum(st.session_state.pattern_selection.values())
+        if selected_patterns_count > 0:
+            st.success(f"🧠 {selected_patterns_count}/10 AI patterns selected")
+        else:
+            st.warning("⚠️ No patterns selected")
+
+        # Professional Capital Management Status
+        st.divider()
+        st.subheader("💰 Capital Management")
+
+        if st.session_state.capital_manager:
+            summary = st.session_state.capital_manager.get_performance_summary()
+            st.success(f"✅ AI Capital System Active")
+            st.metric("Total Capital", f"${summary['total_capital_current']:,.0f}")
+            st.metric("AI ROI", f"{summary['total_roi_pct']:.1f}%")
+            st.metric("Trades", f"{summary['trades_executed']}")
+        else:
+            st.info("💰 AI capital system ready")
+            st.metric("Total Capital", f"${st.session_state.total_capital:,.0f}")
+            st.metric("Per Trade", f"${st.session_state.capital_per_trade:,.0f}")
+
+        # Today's date and status
+        st.divider()
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        st.metric("Today's Date", today_str)
+        st.success("✅ Real-time data active")
+
+        # Data update status
+        if st.session_state.last_data_update:
+            time_diff = datetime.now() - st.session_state.last_data_update
+            minutes_ago = int(time_diff.total_seconds() / 60)
+            st.info(f"🕒 Data updated: {minutes_ago}min ago")
+        else:
+            st.info("🕒 Ready for first update")
+
+        # Analysis status
+        if st.session_state.analysis_complete:
+            if st.session_state.analysis_results:
+                today_patterns = len(
+                    [r for r in st.session_state.analysis_results if r.get("Is Today's Pattern") == "YES"])
+                st.success(f"📊 {len(st.session_state.analysis_results)} opportunities found")
+                if today_patterns > 0:
+                    st.success(f"🎯 {today_patterns} from TODAY!")
+            else:
+                st.info("📊 Analysis complete - no opportunities")
+        else:
+            st.info("📊 Ready for AI analysis")
+
+        st.divider()
+
+        # Professional Patterns showcase
+        st.subheader("🧠 AI Pattern Recognition")
+        pattern_emojis = {
+            'pin_bar': '📍',
+            'bullish_engulfing': '🔥',
+            'three_candle': '🌟',
+            'dragonfly_doji': '🐉',
+            'three_white_soldiers': '⚔️',
+            'bullish_marubozu': '💪',
+            'bullish_harami': '🤰',
+            'bullish_abandoned_baby': '👶',
+            'tweezer_bottom': '🔧',
+            'bullish_kicker': '🚀'
+        }
+
+        for pattern_key, emoji in pattern_emojis.items():
+            is_selected = st.session_state.pattern_selection.get(pattern_key, False)
+            status = "✅" if is_selected else "⭕"
+            pattern_name = pattern_key.replace('_', ' ').title()
+            st.write(f"{status} {emoji} {pattern_name}")
+
+        st.divider()
+
+        # Professional quick actions
+        st.subheader("⚡ Quick Actions")
+
+        if st.button("🔄 Refresh Platform", use_container_width=True):
+            st.rerun()
+
+        if st.button("🧹 Reset Session", use_container_width=True):
+            for key in list(st.session_state.keys()):
+                if key not in ['file_manager', 'authenticated', 'login_username', 'is_viewer']:  # Keep essential keys
+                    del st.session_state[key]
+            st.success("Session reset!")
+            st.rerun()
+
+        st.divider()
+
+        # Professional summary
+        st.markdown("""
+        <div class="professional-card">
+        <h5 style="color: #0066cc; margin: 0;">🧠 APEX AI PLATFORM</h5>
+        <p style="color: #5a6c7d; font-size: 11px; margin: 3px 0;">
+        Professional AI Market Analysis Platform with real-time pattern detection, 
+        advanced capital management, and comprehensive trading analytics.
+        </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+
+
 
 @dataclass
 class SwingLow:
