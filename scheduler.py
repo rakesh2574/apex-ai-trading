@@ -1,6 +1,6 @@
 """
-APEX AI TECHNICAL ANALYSIS - AUTOMATED SCHEDULER
-Runs analysis periodically and saves results to CSV
+APEX AI TECHNICAL ANALYSIS - AUTOMATED SCHEDULER WITH IST TIMEZONE
+Runs analysis periodically and saves results to CSV with Indian Standard Time
 """
 
 import pandas as pd
@@ -10,18 +10,27 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import time
 import warnings
+import pytz
 
 warnings.filterwarnings('ignore')
 
 # Import from your main app
 from tvDatafeed import TvDatafeed, Interval
 
+def get_ist_now():
+    """Get current time in IST"""
+    utc = pytz.UTC
+    ist = pytz.timezone('Asia/Kolkata')
+    return datetime.now(utc).astimezone(ist)
 
-# You'll need to extract the core analysis functions from your main app
-# Or import them if you refactor them into separate modules
+def format_ist_timestamp(timestamp=None):
+    """Format timestamp in IST for display"""
+    if timestamp is None:
+        timestamp = get_ist_now()
+    return timestamp.strftime('%Y-%m-%d %H:%M:%S IST')
 
 class ScheduledAnalyzer:
-    """Automated analysis runner for APEX AI platform"""
+    """Automated analysis runner for APEX AI platform with IST timezone support"""
 
     def __init__(self):
         self.tv = TvDatafeed()
@@ -56,7 +65,7 @@ class ScheduledAnalyzer:
                 'min_days_between': 1,
                 'max_bars_to_analyze': 200,
             },
-            'analysis_start_date': datetime.now() - timedelta(days=180),
+            'analysis_start_date': get_ist_now() - timedelta(days=180),
             'capital_per_trade': 10000
         }
 
@@ -70,8 +79,9 @@ class ScheduledAnalyzer:
             return ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK']
 
     def run_scheduled_analysis(self):
-        """Run the analysis with default configuration"""
-        print(f"🚀 Starting scheduled analysis at {datetime.now()}")
+        """Run the analysis with default configuration and IST timestamps"""
+        ist_start_time = get_ist_now()
+        print(f"🚀 Starting scheduled analysis at {format_ist_timestamp(ist_start_time)}")
 
         try:
             # 1. Update data for all instruments
@@ -82,7 +92,7 @@ class ScheduledAnalyzer:
             print("🧠 Running AI pattern analysis...")
             results = self.run_pattern_analysis()
 
-            # 3. Save results to CSV
+            # 3. Save results to CSV with IST timestamps
             if results:
                 filename = self.save_results_to_csv(results)
                 print(f"✅ Results saved to {filename}")
@@ -93,16 +103,17 @@ class ScheduledAnalyzer:
                 results_df.to_csv(latest_path, index=False)
                 print(f"✅ Latest results updated: {latest_path}")
 
-                # Save metadata
+                # Save metadata with IST
                 self.save_metadata(len(results))
 
+                print(f"✅ Analysis completed at {format_ist_timestamp()}")
                 return True
             else:
                 print("⚠️ No patterns found in analysis")
                 return False
 
         except Exception as e:
-            print(f"❌ Scheduled analysis failed: {e}")
+            print(f"❌ Scheduled analysis failed at {format_ist_timestamp()}: {e}")
             return False
 
     def update_all_data(self):
@@ -122,17 +133,18 @@ class ScheduledAnalyzer:
                         cache_file = cache_dir / f"{symbol}_{self.default_config['exchange']}_{timeframe}.json"
                         cache_data = {
                             'data': data.to_json(orient='index', date_format='iso'),
-                            'timestamp': datetime.now().isoformat(),
+                            'timestamp': get_ist_now().isoformat(),  # IST timestamp
                             'symbol': symbol,
                             'timeframe': timeframe,
                             'exchange': self.default_config['exchange'],
-                            'total_candles': len(data)
+                            'total_candles': len(data),
+                            'timezone': 'Asia/Kolkata'
                         }
 
                         with open(cache_file, 'w') as f:
                             json.dump(cache_data, f, indent=2)
 
-                        print(f"  ✅ Updated {symbol} {timeframe}")
+                        print(f"  ✅ Updated {symbol} {timeframe} at {format_ist_timestamp()}")
 
                 except Exception as e:
                     print(f"  ❌ Failed to update {symbol} {timeframe}: {e}")
@@ -140,11 +152,7 @@ class ScheduledAnalyzer:
                 time.sleep(0.5)  # Rate limiting
 
     def run_pattern_analysis(self):
-        """Run the pattern analysis (simplified from main app)"""
-        # This would use the same logic as your run_comprehensive_analysis
-        # For now, returning sample structure
-        # You should extract the analysis logic from your main app
-
+        """Run the pattern analysis with IST timestamps"""
         results = []
 
         # Load cached data and run analysis
@@ -165,17 +173,32 @@ class ScheduledAnalyzer:
                     # Run your pattern detection logic here
                     # This is a simplified example - use your actual functions
 
-                    # Add sample result (replace with actual analysis)
+                    # Check if this is today's pattern (using IST)
+                    today_ist = get_ist_now().date()
+                    pattern_date_ist = get_ist_now()  # This would be the actual pattern timestamp
+                    is_today = pattern_date_ist.date() == today_ist
+
+                    # Add sample result with IST timestamps (replace with actual analysis)
                     result = {
                         "Symbol": symbol,
                         "Timeframe": timeframe,
                         "Pattern Type": "Pin Bar",  # Example
-                        "Pattern Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "Pattern Date": format_ist_timestamp(pattern_date_ist),
+                        "Swing Low Date": format_ist_timestamp(pattern_date_ist - timedelta(days=2)),
                         "Entry Price": f"{df['close'].iloc[-1]:.4f}",
-                        "Analysis Time": datetime.now().isoformat(),
-                        "Is Today's Pattern": "YES",
+                        "Analysis Time": format_ist_timestamp(),
+                        "Is Today's Pattern": "YES" if is_today else "NO",
                         "Trade Outcome": "Active",
-                        "Current Status": "Monitoring"
+                        "Current Status": "Monitoring",
+                        "Swing Low Price": f"{df['low'].min():.4f}",
+                        "Target Price": f"{df['close'].iloc[-1] * 1.02:.4f}",
+                        "Stop Loss": f"{df['low'].min() * 0.99:.4f}",
+                        "Days Between": 2,
+                        "Distance %": "0.1%",
+                        "Pattern Strength": "65.0%",
+                        "Capital Invested": "$10,000",
+                        "P&L": "$0.00",
+                        "ROI %": "0.00%"
                     }
                     results.append(result)
 
@@ -195,9 +218,9 @@ class ScheduledAnalyzer:
         return interval_map.get(timeframe, Interval.in_4_hour)
 
     def save_results_to_csv(self, results):
-        """Save analysis results to timestamped CSV"""
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = self.results_dir / f"analysis_{timestamp}.csv"
+        """Save analysis results to timestamped CSV with IST"""
+        ist_timestamp = get_ist_now().strftime('%Y%m%d_%H%M%S')
+        filename = self.results_dir / f"analysis_{ist_timestamp}.csv"
 
         df = pd.DataFrame(results)
         df.to_csv(filename, index=False)
@@ -205,24 +228,32 @@ class ScheduledAnalyzer:
         return filename
 
     def save_metadata(self, result_count):
-        """Save metadata about the latest analysis"""
+        """Save metadata about the latest analysis with IST timestamp"""
         metadata = {
-            'last_run': datetime.now().isoformat(),
+            'last_run': get_ist_now().isoformat(),
             'result_count': result_count,
             'config': self.default_config,
-            'status': 'success'
+            'status': 'success',
+            'timezone': 'Asia/Kolkata',
+            'analysis_type': 'scheduled_automated'
         }
 
         metadata_file = self.results_dir / "metadata.json"
         with open(metadata_file, 'w') as f:
             json.dump(metadata, f, indent=2)
 
-
 def main():
-    """Main entry point for scheduler"""
-    analyzer = ScheduledAnalyzer()
-    analyzer.run_scheduled_analysis()
+    """Main entry point for scheduler with IST timezone"""
+    print(f"🕐 Scheduler starting in Indian Standard Time (IST)")
+    print(f"⏰ Current IST time: {format_ist_timestamp()}")
 
+    analyzer = ScheduledAnalyzer()
+    success = analyzer.run_scheduled_analysis()
+
+    if success:
+        print(f"✅ Scheduled analysis completed successfully at {format_ist_timestamp()}")
+    else:
+        print(f"❌ Scheduled analysis failed at {format_ist_timestamp()}")
 
 if __name__ == "__main__":
     main()

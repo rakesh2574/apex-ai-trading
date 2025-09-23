@@ -30,7 +30,86 @@ except ImportError:
     TV_AVAILABLE = False
     st.error("❌ TradingView DataFeed not available. Install with: pip install tvDatafeed")
 
+import pytz
 
+
+def get_ist_now():
+    """Get current time in IST"""
+    utc = pytz.UTC
+    ist = pytz.timezone('Asia/Kolkata')
+    return datetime.now(utc).astimezone(ist)
+
+
+def convert_to_ist(timestamp):
+    """Convert any timestamp to IST"""
+    if isinstance(timestamp, str):
+        timestamp = pd.Timestamp(timestamp)
+
+    if timestamp.tz is None:
+        # Assume UTC if no timezone
+        timestamp = pytz.UTC.localize(timestamp)
+
+    ist = pytz.timezone('Asia/Kolkata')
+    return timestamp.astimezone(ist)
+
+
+def format_ist_timestamp(timestamp=None):
+    """Format timestamp in IST for display"""
+    if timestamp is None:
+        timestamp = get_ist_now()
+    else:
+        timestamp = convert_to_ist(timestamp)
+
+    return timestamp.strftime('%Y-%m-%d %H:%M:%S IST')
+
+
+def save_analysis_results_to_scheduler_format(results):
+    """Save analysis results in the same format as scheduler for viewer access"""
+    if not results:
+        return None
+
+    # Create scheduled_results directory
+    results_dir = Path("scheduled_results")
+    results_dir.mkdir(exist_ok=True)
+
+    # Convert results to DataFrame and add IST timestamps
+    results_df = pd.DataFrame(results)
+
+    # Convert all timestamps to IST
+    timestamp_columns = ['Pattern Date', 'Swing Low Date', 'Last Update']
+    for col in timestamp_columns:
+        if col in results_df.columns:
+            results_df[col] = results_df[col].apply(
+                lambda x: format_ist_timestamp(x) if pd.notna(x) and x != 'N/A' else x
+            )
+
+    # Add analysis timestamp in IST
+    results_df['Analysis Time'] = format_ist_timestamp()
+
+    # Save to latest_results.csv (same as scheduler)
+    latest_file = results_dir / "latest_results.csv"
+    results_df.to_csv(latest_file, index=False)
+
+    # Also save timestamped version
+    timestamp = get_ist_now().strftime('%Y%m%d_%H%M%S')
+    timestamped_file = results_dir / f"analysis_{timestamp}.csv"
+    results_df.to_csv(timestamped_file, index=False)
+
+    # Save metadata
+    metadata = {
+        'last_run': get_ist_now().isoformat(),
+        'result_count': len(results),
+        'status': 'success',
+        'timeframe': '4H',  # or get from analysis parameters
+        'analysis_type': 'manual_comprehensive',
+        'timezone': 'Asia/Kolkata'
+    }
+
+    metadata_file = results_dir / "metadata.json"
+    with open(metadata_file, 'w') as f:
+        json.dump(metadata, f, indent=2)
+
+    return latest_file, timestamped_file
 def check_login():
     """Handle login authentication - Enhanced with viewer support"""
     if 'authenticated' not in st.session_state:
@@ -187,7 +266,7 @@ def check_results_viewer_login():
 
 
 def render_cached_results_viewer():
-    """Complete result viewer interface for client accounts - FIXED VERSION"""
+    """Complete result viewer interface for client accounts with IST timezone support"""
 
     # Apply professional theme
     apply_professional_theme()
@@ -226,7 +305,7 @@ def render_cached_results_viewer():
     # If no results exist, show message and create sample
     if not latest_file.exists():
         st.warning("⚠️ No analysis results available yet.")
-        st.info("📋 The automated scheduler hasn't generated results yet, or the results file is missing.")
+        st.info("📋 The automated scheduler or manual analysis hasn't generated results yet.")
 
         # Show expected file location
         st.code(f"Expected file: {latest_file.absolute()}")
@@ -235,20 +314,28 @@ def render_cached_results_viewer():
         if st.button("🧪 Generate Sample Data for Testing"):
             sample_results = create_sample_results()
             sample_df = pd.DataFrame(sample_results)
+
+            # Convert sample timestamps to IST
+            for col in ['Pattern Date', 'Swing Low Date']:
+                if col in sample_df.columns:
+                    sample_df[col] = sample_df[col].apply(lambda x: format_ist_timestamp())
+
+            sample_df['Analysis Time'] = format_ist_timestamp()
             sample_df.to_csv(latest_file, index=False)
 
-            # Create sample metadata
+            # Create sample metadata with IST
             sample_metadata = {
-                'last_run': datetime.now().isoformat(),
+                'last_run': get_ist_now().isoformat(),
                 'result_count': len(sample_results),
                 'status': 'sample_data',
-                'timeframe': '4H'
+                'timeframe': '4H',
+                'timezone': 'Asia/Kolkata'
             }
 
             with open(metadata_file, 'w') as f:
                 json.dump(sample_metadata, f, indent=2)
 
-            st.success("✅ Sample results created. Refreshing...")
+            st.success("✅ Sample results created with IST timestamps. Refreshing...")
             time.sleep(1)
             st.rerun()
         return
@@ -283,7 +370,7 @@ def render_cached_results_viewer():
             except (json.JSONDecodeError, FileNotFoundError):
                 st.warning("⚠️ Metadata file is corrupted or missing, continuing without metadata.")
 
-        # Display metadata metrics
+        # Display metadata metrics with IST time handling
         st.subheader("📈 Analysis Summary")
 
         col1, col2, col3, col4, col5, col6 = st.columns(6)
@@ -291,19 +378,27 @@ def render_cached_results_viewer():
         with col1:
             if 'last_run' in metadata:
                 try:
-                    last_run = datetime.fromisoformat(metadata['last_run'])
-                    time_diff = datetime.now() - last_run
-                    hours_ago = time_diff.total_seconds() / 3600
+                    last_run_str = metadata['last_run']
 
-                    if hours_ago < 1:
-                        minutes_ago = int(time_diff.total_seconds() / 60)
-                        st.metric("Last Update", f"{minutes_ago} min ago")
+                    # Handle IST formatted timestamps
+                    if 'IST' in last_run_str:
+                        st.metric("Last Update", last_run_str.split('T')[1].split('.')[0] + " IST")
                     else:
-                        st.metric("Last Update", f"{hours_ago:.1f} hours ago")
-                except:
+                        # Convert UTC to IST
+                        last_run = datetime.fromisoformat(last_run_str.replace('Z', '+00:00'))
+                        ist_time = convert_to_ist(last_run)
+                        time_diff = get_ist_now().replace(tzinfo=None) - ist_time.replace(tzinfo=None)
+                        hours_ago = time_diff.total_seconds() / 3600
+
+                        if hours_ago < 1:
+                            minutes_ago = int(time_diff.total_seconds() / 60)
+                            st.metric("Last Update (IST)", f"{minutes_ago} min ago")
+                        else:
+                            st.metric("Last Update (IST)", f"{hours_ago:.1f} hours ago")
+                except Exception:
                     st.metric("Last Update", "Invalid date")
             else:
-                st.metric("Last Update", "Unknown")
+                st.metric("Last Update (IST)", "Unknown")
 
         with col2:
             st.metric("Total Patterns", len(results_df))
@@ -343,42 +438,162 @@ def render_cached_results_viewer():
 
         st.divider()
 
-        # Display the results table
-        st.subheader("📋 Analysis Results")
+        # Filter controls
+        st.subheader("🔍 Filter Options")
 
-        # Add download button
-        csv_data = results_df.to_csv(index=False)
-        st.download_button(
-            label="📥 Download Results CSV",
-            data=csv_data,
-            file_name=f"apex_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
+        filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
 
-        # Display dataframe with error handling
-        st.dataframe(results_df, use_container_width=True, height=600)
+        with filter_col1:
+            # Symbol filter
+            if "Symbol" in results_df.columns:
+                all_symbols = ["All"] + sorted(results_df["Symbol"].unique().tolist())
+                selected_symbol = st.selectbox("Symbol", all_symbols, key="viewer_symbol_filter")
+            else:
+                selected_symbol = "All"
 
-        # Show file info
+        with filter_col2:
+            # Pattern filter
+            if "Pattern Type" in results_df.columns:
+                all_patterns = ["All"] + sorted(results_df["Pattern Type"].unique().tolist())
+                selected_pattern = st.selectbox("Pattern", all_patterns, key="viewer_pattern_filter")
+            else:
+                selected_pattern = "All"
+
+        with filter_col3:
+            # Today's patterns filter
+            show_today_only = st.checkbox("Today's Patterns Only", value=False, key="viewer_today_filter")
+
+        with filter_col4:
+            # Trade outcome filter
+            if "Trade Outcome" in results_df.columns:
+                all_outcomes = ["All"] + sorted(results_df["Trade Outcome"].unique().tolist())
+                selected_outcome = st.selectbox("Outcome", all_outcomes, key="viewer_outcome_filter")
+            else:
+                selected_outcome = "All"
+
+        # Apply filters
+        filtered_df = results_df.copy()
+
+        if selected_symbol != "All" and "Symbol" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["Symbol"] == selected_symbol]
+
+        if selected_pattern != "All" and "Pattern Type" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["Pattern Type"] == selected_pattern]
+
+        if show_today_only and "Is Today's Pattern" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["Is Today's Pattern"].astype(str).str.upper() == "YES"]
+
+        if selected_outcome != "All" and "Trade Outcome" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["Trade Outcome"] == selected_outcome]
+
+        st.divider()
+
+        # Display filtered results
+        if not filtered_df.empty:
+            # Today's patterns section
+            if "Is Today's Pattern" in filtered_df.columns:
+                today_df = filtered_df[filtered_df["Is Today's Pattern"].astype(str).str.upper() == "YES"]
+
+                if not today_df.empty:
+                    st.subheader(f"🎯 Today's Patterns ({len(today_df)} found)")
+
+                    # Highlight today's patterns
+                    st.dataframe(
+                        today_df,
+                        use_container_width=True,
+                        height=min(200, len(today_df) * 35 + 50)
+                    )
+
+                    st.divider()
+
+            # All results section
+            st.subheader(f"📋 All Analysis Results ({len(filtered_df)} patterns)")
+
+            # Download section
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # Download filtered results
+                csv = filtered_df.to_csv(index=False)
+                st.download_button(
+                    label=f"📥 Download Filtered Results ({len(filtered_df)} rows)",
+                    data=csv,
+                    file_name=f"apex_filtered_results_{get_ist_now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+
+            with col2:
+                # Download all results
+                all_csv = results_df.to_csv(index=False)
+                st.download_button(
+                    label=f"📥 Download All Results ({len(results_df)} rows)",
+                    data=all_csv,
+                    file_name=f"apex_all_results_{get_ist_now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+
+            # Display the filtered dataframe
+            st.dataframe(
+                filtered_df,
+                use_container_width=True,
+                height=600
+            )
+
+            # Pattern statistics
+            st.divider()
+            st.subheader("📊 Pattern Statistics")
+
+            if "Pattern Type" in filtered_df.columns:
+                pattern_counts = filtered_df["Pattern Type"].value_counts()
+
+                stat_col1, stat_col2 = st.columns(2)
+
+                with stat_col1:
+                    st.write("**Pattern Distribution:**")
+                    for pattern, count in pattern_counts.items():
+                        percentage = (count / len(filtered_df)) * 100
+                        st.write(f"• {pattern}: {count} ({percentage:.1f}%)")
+
+                with stat_col2:
+                    if "Trade Outcome" in filtered_df.columns:
+                        st.write("**Outcome Distribution:**")
+                        outcome_counts = filtered_df["Trade Outcome"].value_counts()
+                        for outcome, count in outcome_counts.items():
+                            percentage = (count / len(filtered_df)) * 100
+                            st.write(f"• {outcome}: {count} ({percentage:.1f}%)")
+
+        else:
+            st.warning("⚠️ No results match the selected filters.")
+
+        # Show file info with IST timestamps
+        st.divider()
         st.subheader("📁 File Information")
         col1, col2, col3 = st.columns(3)
         with col1:
             st.info(f"**File Size:** {latest_file.stat().st_size / 1024:.2f} KB")
         with col2:
             mod_time = datetime.fromtimestamp(latest_file.stat().st_mtime)
-            st.info(f"**File Modified:** {mod_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            ist_mod_time = convert_to_ist(mod_time)
+            st.info(f"**File Modified:** {ist_mod_time.strftime('%Y-%m-%d %H:%M:%S IST')}")
         with col3:
             st.info(f"**Rows × Columns:** {len(results_df)} × {len(results_df.columns)}")
 
-        # Footer information
+        # Footer information with IST timezone info
         st.divider()
-        st.info("""
+        st.info(f"""
         📊 **Result Viewer Mode Information:**
-        - Results are generated by automated scheduler
+        - Results are generated by automated scheduler and manual analysis
         - This is a read-only view of the latest analysis results  
         - Data is updated automatically every few hours
+        - All timestamps displayed in Indian Standard Time (IST)
+        - Current IST time: {format_ist_timestamp()}
         - Contact administrator for any questions or issues
         """)
+
+        # Show timezone info prominently
+        st.success(f"🕐 **Timezone**: All timestamps displayed in Indian Standard Time (IST)")
 
     except pd.errors.EmptyDataError:
         st.error("❌ The results file is empty or corrupted.")
@@ -6435,16 +6650,26 @@ def execute_combined_analysis(analysis_timeframes, selected_patterns, analysis_s
 # ============================================================================
 
 def display_analysis_results():
-    """Display comprehensive analysis results with customizable detection info - FIXED VERSION"""
+    """Display comprehensive analysis results with IST timestamps and unified CSV output"""
     results = st.session_state.analysis_results
     debug_info = st.session_state.debug_info
+
+    # Save results to scheduler format for viewer access
+    if results:
+        try:
+            latest_file, timestamped_file = save_analysis_results_to_scheduler_format(results)
+            st.success(f"✅ Results saved for viewer access: {latest_file.name}")
+            st.info(f"📁 Timestamped backup: {timestamped_file.name}")
+            st.info(f"🕐 All timestamps converted to Indian Standard Time (IST)")
+        except Exception as e:
+            st.error(f"❌ Error saving results: {e}")
 
     # Check for today's patterns
     today_patterns = [r for r in results if r.get("Is Today's Pattern") == "YES"]
     today_count = len(today_patterns)
 
-    # Enhanced header with customizable detection info
-    st.subheader("📊 Customizable Swing Low Detection & Live Entry Validation Results")
+    # Enhanced header with customizable detection info and IST time
+    st.subheader(f"📊 Analysis Results - Generated at {format_ist_timestamp()}")
 
     # Show detection parameters and validation summary
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -6475,13 +6700,14 @@ def display_analysis_results():
         st.metric("Time Saved", f"{time_saved_minutes}min", help="Earlier detection vs symmetric approach")
 
     # Show validation summary
+    filtered_count = debug_info.get('historical_trades_filtered', 0)
     if filtered_count > 0:
         st.warning(
             f"⚠️ **Filtered {filtered_count} historical trades** that wouldn't have been detectable as live entries with {left_lookback}+{right_lookback} bar detection.")
         st.info("💡 This filtering ensures your backtest results match what you can achieve in live trading.")
 
     st.success(
-        f"✅ **All {live_detectable} results shown are live-detectable** using {left_lookback}+{right_lookback} customizable swing low detection.")
+        f"✅ **All {len(results)} results shown are live-detectable** using {left_lookback}+{right_lookback} customizable swing low detection.")
 
     if today_count > 0:
         st.success(
@@ -6549,8 +6775,16 @@ def display_analysis_results():
 
         updated_results.append(result_copy)
 
-    # Create DataFrame
+    # Create DataFrame and convert timestamps to IST
     results_df = pd.DataFrame(updated_results)
+
+    # Convert timestamp columns to IST for display
+    timestamp_columns = ['Pattern Date', 'Swing Low Date', 'Last Update']
+    for col in timestamp_columns:
+        if col in results_df.columns:
+            results_df[col] = results_df[col].apply(
+                lambda x: format_ist_timestamp(x) if pd.notna(x) and x != 'N/A' else x
+            )
 
     # Today's Patterns Summary
     if today_count > 0:
@@ -6572,7 +6806,7 @@ def display_analysis_results():
                 today_df) > 0 else f"{left_lookback}+{right_lookback}"
             st.metric("Detection Mode", avg_detection_mode)
 
-        # Today's patterns table - FIXED column selection
+        # Today's patterns table
         available_columns = today_df.columns.tolist()
 
         # Define desired columns but only use ones that actually exist
@@ -6755,7 +6989,7 @@ def display_analysis_results():
         'Strength/Ratio', 'Bullish', 'Trade Outcome', 'Current Status', 'Target Used',
         'Detection Mode', 'Capital Invested', 'P&L', 'ROI %',
         'Target Price', 'Stop Loss', 'Current Price', 'Max Profit %', 'Max Drawdown %',
-        'Bars to Resolution', 'Resolution Type', 'Last Update'
+        'Bars to Resolution', 'Resolution Type', 'Last Update', 'Analysis Time'
     ]
 
     complete_available_columns = [col for col in final_desired_columns if col in results_df.columns]
@@ -6768,10 +7002,14 @@ def display_analysis_results():
     st.success(
         f"✅ **Analysis Complete**: {len(results)} live-detectable opportunities found using {left_lookback}+{right_lookback} customizable swing low detection. All results can be detected in real-time trading.")
 
+    filtered_count = debug_info.get('historical_trades_filtered', 0)
     if filtered_count > 0:
         st.info(
             f"💡 **Quality Assurance**: {filtered_count} historical trades were automatically filtered out to ensure all results are achievable in live trading.")
 
+    # Show IST timezone info
+    st.info(
+        f"🕐 **Timezone**: All timestamps displayed in Indian Standard Time (IST). Generated at {format_ist_timestamp()}")
     # Enhanced trade outcome display logic with trailing stops
     def get_trade_outcome_display(outcome):
         """Get enhanced trade outcome display with trailing stop support"""
