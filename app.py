@@ -35,6 +35,7 @@ def check_login():
     """Handle login authentication - Enhanced with viewer support"""
     if 'authenticated' not in st.session_state:
         st.session_state.authenticated = False
+        st.session_state.is_viewer = False  # Initialize this
 
     if not st.session_state.authenticated:
         # Display login page
@@ -45,7 +46,7 @@ def check_login():
             initial_sidebar_state="collapsed"
         )
 
-        # Professional login styling
+        # Professional login styling (keep your existing styling)
         st.markdown("""
         <style>
         .login-container {
@@ -95,7 +96,7 @@ def check_login():
                     contact_button = st.form_submit_button("📧 Contact Admin", use_container_width=True)
 
                 if login_button:
-                    # Define viewer accounts - these see only results
+                    # Define viewer accounts FIRST
                     VIEWER_ACCOUNTS = {
                         'viewer': 'view123',
                         'client': 'client456',
@@ -103,30 +104,29 @@ def check_login():
                         'readonly': 'readonly123'
                     }
 
-                    # Try to get regular credentials from secrets first, fallback to hardcoded
+                    # Try to get regular credentials
                     try:
-                        # Try using Streamlit secrets (for cloud deployment)
                         correct_username = st.secrets["username"]
                         correct_password = st.secrets["password"]
                     except:
-                        # Fallback to hardcoded if secrets not available (local development)
                         correct_username = "Arthur"
                         correct_password = "trapezoid"
 
-                    # Check regular login (full access)
-                    if username == correct_username and password == correct_password:
+                    # IMPORTANT: Check viewer FIRST, then regular user
+                    if username in VIEWER_ACCOUNTS and password == VIEWER_ACCOUNTS[username]:
+                        # VIEWER LOGIN
                         st.session_state.authenticated = True
                         st.session_state.login_username = username
-                        st.session_state.is_viewer = False  # Regular user
-                        st.success("✅ Login successful! Loading full platform...")
+                        st.session_state.is_viewer = True  # SET AS VIEWER
+                        st.success("✅ Login successful! Loading results viewer...")
                         time.sleep(1)
                         st.rerun()
-                    # Check viewer login (results only)
-                    elif username in VIEWER_ACCOUNTS and password == VIEWER_ACCOUNTS[username]:
+                    elif username == correct_username and password == correct_password:
+                        # FULL ACCESS LOGIN (Arthur)
                         st.session_state.authenticated = True
                         st.session_state.login_username = username
-                        st.session_state.is_viewer = True  # Viewer user
-                        st.success("✅ Login successful! Loading results viewer...")
+                        st.session_state.is_viewer = False  # NOT A VIEWER
+                        st.success("✅ Login successful! Loading full platform...")
                         time.sleep(1)
                         st.rerun()
                     else:
@@ -518,14 +518,13 @@ def main():
     # Check authentication first
     check_login()
 
-    # Check if this is a viewer account
-    if st.session_state.get('is_viewer', False):
-        # Show simplified result viewer interface
+    # CRITICAL: Check viewer status immediately after login
+    if st.session_state.get('is_viewer', False) == True:
+        # Viewer account - show ONLY CSV viewer
         render_cached_results_viewer()
-        return  # Exit here - don't load the full application
+        return  # EXIT HERE - don't show full platform
 
-    # OTHERWISE, CONTINUE WITH THE FULL APPLICATION FOR REGULAR USERS
-
+    # ONLY ARTHUR (or regular users) CONTINUE FROM HERE
     # After authentication, set the wide layout for regular users
     st.set_page_config(
         page_title="🚀 APEX AI Technical Analysis Platform",
@@ -534,6 +533,7 @@ def main():
         initial_sidebar_state="expanded"
     )
 
+    # Rest of your existing main() function continues here...
     # Initialize session state and apply professional theme
     init_session_state()
     apply_professional_theme()
