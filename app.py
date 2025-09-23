@@ -8053,7 +8053,18 @@ def validate_live_entry_capability(df: pd.DataFrame, touches: List[SwingLowTouch
 
 def main():
     """Main Professional AI Market Analysis Platform with Login and Date Picker Enhancement"""
+    # Get URL parameters
+    params = st.query_params
 
+    # Check if viewer mode requested
+    if params.get("mode") == "viewer":
+        # Check viewer password
+        password = st.text_input("Viewer Password:", type="password")
+        if password == "view123":
+            render_cached_results_viewer()
+        else:
+            st.error("Invalid viewer password")
+        return
     # Check authentication first
     check_login()
 
