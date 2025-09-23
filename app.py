@@ -35,7 +35,8 @@ def check_login():
     """Handle login authentication - Enhanced with viewer support"""
     if 'authenticated' not in st.session_state:
         st.session_state.authenticated = False
-        st.session_state.is_viewer = False  # Initialize this
+        st.session_state.is_viewer = False
+        st.session_state.login_username = ''
 
     if not st.session_state.authenticated:
         # Display login page
@@ -46,7 +47,7 @@ def check_login():
             initial_sidebar_state="collapsed"
         )
 
-        # Professional login styling (keep your existing styling)
+        # Your existing styling here...
         st.markdown("""
         <style>
         .login-container {
@@ -72,7 +73,6 @@ def check_login():
         </style>
         """, unsafe_allow_html=True)
 
-        # Center the login form
         col1, col2, col3 = st.columns([1, 2, 1])
 
         with col2:
@@ -81,7 +81,6 @@ def check_login():
             st.markdown('<p class="login-subtitle">Assisted Technical Analysis Platform</p>', unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
-            # Login form
             with st.form("login_form"):
                 st.subheader("🔐 Secure Login")
 
@@ -96,7 +95,7 @@ def check_login():
                     contact_button = st.form_submit_button("📧 Contact Admin", use_container_width=True)
 
                 if login_button:
-                    # Define viewer accounts FIRST
+                    # Define all accounts
                     VIEWER_ACCOUNTS = {
                         'viewer': 'view123',
                         'client': 'client456',
@@ -104,48 +103,46 @@ def check_login():
                         'readonly': 'readonly123'
                     }
 
-                    # Try to get regular credentials
-                    try:
-                        correct_username = st.secrets["username"]
-                        correct_password = st.secrets["password"]
-                    except:
-                        correct_username = "Arthur"
-                        correct_password = "trapezoid"
+                    FULL_ACCESS_ACCOUNTS = {
+                        'Arthur': 'trapezoid'
+                    }
 
-                    # IMPORTANT: Check viewer FIRST, then regular user
+                    # Check credentials
+                    login_success = False
+
+                    # Check if it's a viewer account
                     if username in VIEWER_ACCOUNTS and password == VIEWER_ACCOUNTS[username]:
-                        # VIEWER LOGIN
                         st.session_state.authenticated = True
                         st.session_state.login_username = username
-                        st.session_state.is_viewer = True  # SET AS VIEWER
+                        st.session_state.is_viewer = True  # CRITICAL: Set to True for viewers
+                        login_success = True
                         st.success("✅ Login successful! Loading results viewer...")
-                        time.sleep(1)
-                        st.rerun()
-                    elif username == correct_username and password == correct_password:
-                        # FULL ACCESS LOGIN (Arthur)
+
+                    # Check if it's a full access account
+                    elif username in FULL_ACCESS_ACCOUNTS and password == FULL_ACCESS_ACCOUNTS[username]:
                         st.session_state.authenticated = True
                         st.session_state.login_username = username
-                        st.session_state.is_viewer = False  # NOT A VIEWER
+                        st.session_state.is_viewer = False  # CRITICAL: Set to False for full access
+                        login_success = True
                         st.success("✅ Login successful! Loading full platform...")
-                        time.sleep(1)
-                        st.rerun()
+
                     else:
                         st.error("❌ Invalid credentials. Please try again.")
-                        st.info("💡 Hint: Contact your administrator for access.")
+
+                    if login_success:
+                        time.sleep(1)
+                        st.rerun()
 
                 if contact_button:
                     st.info("📧 Contact admin@apex-ai.com for support")
 
-            # Footer
             st.divider()
             st.markdown("""
             <div style="text-align: center; color: #6c757d; font-size: 0.9rem;">
             <p>© 2024 APEX AI Technical Analysis Platform</p>
-            <p>Advanced Pattern Recognition | Real-Time Analysis | Professional Trading</p>
             </div>
             """, unsafe_allow_html=True)
 
-        # Stop execution if not authenticated
         st.stop()
 
 
@@ -518,14 +515,41 @@ def main():
     # Check authentication first
     check_login()
 
-    # CRITICAL: Check viewer status immediately after login
-    if st.session_state.get('is_viewer', False) == True:
-        # Viewer account - show ONLY CSV viewer
-        render_cached_results_viewer()
-        return  # EXIT HERE - don't show full platform
+    # TEMPORARY DEBUG - Remove after testing
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.write(f"User: {st.session_state.get('login_username', 'None')}")
+    with col2:
+        st.write(f"Is Viewer: {st.session_state.get('is_viewer', 'Not Set')}")
+    with col3:
+        if st.button("Clear Session"):
+            for key in st.session_state.keys():
+                del st.session_state[key]
+            st.rerun()
 
-    # ONLY ARTHUR (or regular users) CONTINUE FROM HERE
-    # After authentication, set the wide layout for regular users
+    # Check if viewer
+    if st.session_state.get('is_viewer', False):
+        st.warning("VIEWER MODE - Showing CSV only")
+        render_cached_results_viewer()
+        return
+
+    st.success("FULL ACCESS MODE - Showing complete platform")
+
+    ######### to be removed till now
+
+    # DEBUG: Show what user type is logged in
+    # st.write(f"DEBUG: User={st.session_state.get('login_username')}, IsViewer={st.session_state.get('is_viewer')}")
+
+    # CRITICAL CHECK: If viewer, show ONLY CSV viewer
+    if st.session_state.get('is_viewer', False):
+        # This is a viewer - show ONLY the CSV viewer
+        render_cached_results_viewer()
+        return  # STOP HERE - Don't show anything else
+
+    # ONLY FULL ACCESS USERS (Arthur) CONTINUE BELOW THIS LINE
+    # =========================================================
+
+    # Set page config for full platform
     st.set_page_config(
         page_title="🚀 APEX AI Technical Analysis Platform",
         page_icon="🚀",
@@ -533,12 +557,12 @@ def main():
         initial_sidebar_state="expanded"
     )
 
-    # Rest of your existing main() function continues here...
     # Initialize session state and apply professional theme
     init_session_state()
     apply_professional_theme()
 
-    # Professional main title - Updated branding
+    # REST OF YOUR EXISTING main() CODE CONTINUES HERE...
+    # Professional main title
     st.title("🚀 APEX AI TECHNICAL ANALYSIS PLATFORM")
     st.markdown(
         "**Advanced Technical Analysis: AI-Powered Pattern Recognition + Smart Capital Management + Real-Time Processing + Professional Features 📊🧠**")
