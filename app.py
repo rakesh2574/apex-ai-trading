@@ -187,15 +187,7 @@ def check_results_viewer_login():
 
 
 def render_cached_results_viewer():
-    """Complete result viewer interface for client accounts"""
-
-    # Set page config for viewer mode
-    st.set_page_config(
-        page_title="APEX AI - Analysis Results Viewer",
-        page_icon="📊",
-        layout="wide",
-        initial_sidebar_state="collapsed"
-    )
+    """Complete result viewer interface for client accounts - FIXED VERSION"""
 
     # Apply professional theme
     apply_professional_theme()
@@ -209,8 +201,9 @@ def render_cached_results_viewer():
 
     with col1:
         if st.button("🚪 Logout", type="primary", key="viewer_logout"):
-            st.session_state.authenticated = False
-            st.session_state.login_username = ''
+            # Clear session and redirect to login
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
             st.rerun()
 
     with col2:
@@ -218,8 +211,8 @@ def render_cached_results_viewer():
             st.rerun()
 
     with col3:
-        username = st.session_state.get('login_username', 'User')
-        st.info(f"👤 Logged in as: **{username}** (Viewer Mode)")
+        username = st.session_state.get('login_username', 'Viewer')
+        st.info(f"👤 Logged in as: **{username}** (Read-Only Results Viewer)")
 
     st.divider()
 
@@ -230,42 +223,65 @@ def render_cached_results_viewer():
     latest_file = results_dir / "latest_results.csv"
     metadata_file = results_dir / "metadata.json"
 
-    # If no results exist, create sample data
+    # If no results exist, show message and create sample
     if not latest_file.exists():
-        st.warning("⚠️ No pre-computed results available yet.")
-        st.info("📋 Generating sample results for demonstration...")
+        st.warning("⚠️ No analysis results available yet.")
+        st.info("📋 The automated scheduler hasn't generated results yet, or the results file is missing.")
 
-        # Create sample results
-        sample_results = create_sample_results()
-        sample_df = pd.DataFrame(sample_results)
+        # Show expected file location
+        st.code(f"Expected file: {latest_file.absolute()}")
 
-        # Save sample results
-        sample_df.to_csv(latest_file, index=False)
+        # Create sample data for demonstration
+        if st.button("🧪 Generate Sample Data for Testing"):
+            sample_results = create_sample_results()
+            sample_df = pd.DataFrame(sample_results)
+            sample_df.to_csv(latest_file, index=False)
 
-        # Create sample metadata
-        sample_metadata = {
-            'last_run': datetime.now().isoformat(),
-            'result_count': len(sample_results),
-            'status': 'sample_data',
-            'timeframe': '4H'
-        }
+            # Create sample metadata
+            sample_metadata = {
+                'last_run': datetime.now().isoformat(),
+                'result_count': len(sample_results),
+                'status': 'sample_data',
+                'timeframe': '4H'
+            }
 
-        with open(metadata_file, 'w') as f:
-            json.dump(sample_metadata, f, indent=2)
+            with open(metadata_file, 'w') as f:
+                json.dump(sample_metadata, f, indent=2)
 
-        st.success("✅ Sample results created. Refreshing...")
-        time.sleep(1)
-        st.rerun()
+            st.success("✅ Sample results created. Refreshing...")
+            time.sleep(1)
+            st.rerun()
+        return
 
-    # Load and display results
+    # Load and display results with comprehensive error handling
     try:
-        results_df = pd.read_csv(latest_file)
+        # Load CSV with multiple encoding attempts
+        results_df = None
+        encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252']
+
+        for encoding in encodings_to_try:
+            try:
+                results_df = pd.read_csv(latest_file, encoding=encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+
+        if results_df is None:
+            st.error("❌ Could not read the CSV file with any supported encoding.")
+            return
+
+        if results_df.empty:
+            st.warning("⚠️ Results file exists but is empty.")
+            return
 
         # Load metadata if available
         metadata = {}
         if metadata_file.exists():
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
+            try:
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                st.warning("⚠️ Metadata file is corrupted or missing, continuing without metadata.")
 
         # Display metadata metrics
         st.subheader("📈 Analysis Summary")
@@ -274,15 +290,18 @@ def render_cached_results_viewer():
 
         with col1:
             if 'last_run' in metadata:
-                last_run = datetime.fromisoformat(metadata['last_run'])
-                time_diff = datetime.now() - last_run
-                hours_ago = time_diff.total_seconds() / 3600
+                try:
+                    last_run = datetime.fromisoformat(metadata['last_run'])
+                    time_diff = datetime.now() - last_run
+                    hours_ago = time_diff.total_seconds() / 3600
 
-                if hours_ago < 1:
-                    minutes_ago = int(time_diff.total_seconds() / 60)
-                    st.metric("Last Update", f"{minutes_ago} min ago")
-                else:
-                    st.metric("Last Update", f"{hours_ago:.1f} hours ago")
+                    if hours_ago < 1:
+                        minutes_ago = int(time_diff.total_seconds() / 60)
+                        st.metric("Last Update", f"{minutes_ago} min ago")
+                    else:
+                        st.metric("Last Update", f"{hours_ago:.1f} hours ago")
+                except:
+                    st.metric("Last Update", "Invalid date")
             else:
                 st.metric("Last Update", "Unknown")
 
@@ -290,17 +309,23 @@ def render_cached_results_viewer():
             st.metric("Total Patterns", len(results_df))
 
         with col3:
-            # Count today's patterns
+            # Count today's patterns safely
             today_count = 0
             if "Is Today's Pattern" in results_df.columns:
-                today_count = len(results_df[results_df["Is Today's Pattern"] == "YES"])
+                try:
+                    today_count = len(results_df[results_df["Is Today's Pattern"].astype(str).str.upper() == "YES"])
+                except:
+                    pass
             st.metric("Today's Patterns", today_count)
 
         with col4:
-            # Count unique symbols
+            # Count unique symbols safely
             if "Symbol" in results_df.columns:
-                unique_symbols = results_df["Symbol"].nunique()
-                st.metric("Symbols", unique_symbols)
+                try:
+                    unique_symbols = results_df["Symbol"].nunique()
+                    st.metric("Symbols", unique_symbols)
+                except:
+                    st.metric("Symbols", "N/A")
             else:
                 st.metric("Symbols", "N/A")
 
@@ -318,155 +343,57 @@ def render_cached_results_viewer():
 
         st.divider()
 
-        # Filter controls
-        st.subheader("🔍 Filter Options")
+        # Display the results table
+        st.subheader("📋 Analysis Results")
 
-        filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
+        # Add download button
+        csv_data = results_df.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Results CSV",
+            data=csv_data,
+            file_name=f"apex_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
 
-        with filter_col1:
-            # Symbol filter
-            if "Symbol" in results_df.columns:
-                all_symbols = ["All"] + sorted(results_df["Symbol"].unique().tolist())
-                selected_symbol = st.selectbox("Symbol", all_symbols, key="viewer_symbol_filter")
-            else:
-                selected_symbol = "All"
+        # Display dataframe with error handling
+        st.dataframe(results_df, use_container_width=True, height=600)
 
-        with filter_col2:
-            # Pattern filter
-            if "Pattern Type" in results_df.columns:
-                all_patterns = ["All"] + sorted(results_df["Pattern Type"].unique().tolist())
-                selected_pattern = st.selectbox("Pattern", all_patterns, key="viewer_pattern_filter")
-            else:
-                selected_pattern = "All"
-
-        with filter_col3:
-            # Today's patterns filter
-            show_today_only = st.checkbox("Today's Patterns Only", value=False, key="viewer_today_filter")
-
-        with filter_col4:
-            # Trade outcome filter
-            if "Trade Outcome" in results_df.columns:
-                all_outcomes = ["All"] + sorted(results_df["Trade Outcome"].unique().tolist())
-                selected_outcome = st.selectbox("Outcome", all_outcomes, key="viewer_outcome_filter")
-            else:
-                selected_outcome = "All"
-
-        # Apply filters
-        filtered_df = results_df.copy()
-
-        if selected_symbol != "All" and "Symbol" in filtered_df.columns:
-            filtered_df = filtered_df[filtered_df["Symbol"] == selected_symbol]
-
-        if selected_pattern != "All" and "Pattern Type" in filtered_df.columns:
-            filtered_df = filtered_df[filtered_df["Pattern Type"] == selected_pattern]
-
-        if show_today_only and "Is Today's Pattern" in filtered_df.columns:
-            filtered_df = filtered_df[filtered_df["Is Today's Pattern"] == "YES"]
-
-        if selected_outcome != "All" and "Trade Outcome" in filtered_df.columns:
-            filtered_df = filtered_df[filtered_df["Trade Outcome"] == selected_outcome]
-
-        st.divider()
-
-        # Display filtered results
-        if not filtered_df.empty:
-            # Today's patterns section
-            if "Is Today's Pattern" in filtered_df.columns:
-                today_df = filtered_df[filtered_df["Is Today's Pattern"] == "YES"]
-
-                if not today_df.empty:
-                    st.subheader(f"🎯 Today's Patterns ({len(today_df)} found)")
-
-                    # Highlight today's patterns
-                    st.dataframe(
-                        today_df,
-                        use_container_width=True,
-                        height=min(200, len(today_df) * 35 + 50)
-                    )
-
-                    st.divider()
-
-            # All results section
-            st.subheader(f"📋 All Analysis Results ({len(filtered_df)} patterns)")
-
-            # Download section
-            col1, col2 = st.columns(2)
-
-            with col1:
-                # Download filtered results
-                csv = filtered_df.to_csv(index=False)
-                st.download_button(
-                    label=f"📥 Download Filtered Results ({len(filtered_df)} rows)",
-                    data=csv,
-                    file_name=f"apex_filtered_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-
-            with col2:
-                # Download all results
-                all_csv = results_df.to_csv(index=False)
-                st.download_button(
-                    label=f"📥 Download All Results ({len(results_df)} rows)",
-                    data=all_csv,
-                    file_name=f"apex_all_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-
-            # Display the filtered dataframe
-            st.dataframe(
-                filtered_df,
-                use_container_width=True,
-                height=600
-            )
-
-            # Pattern statistics
-            st.divider()
-            st.subheader("📊 Pattern Statistics")
-
-            if "Pattern Type" in filtered_df.columns:
-                pattern_counts = filtered_df["Pattern Type"].value_counts()
-
-                stat_col1, stat_col2 = st.columns(2)
-
-                with stat_col1:
-                    st.write("**Pattern Distribution:**")
-                    for pattern, count in pattern_counts.items():
-                        percentage = (count / len(filtered_df)) * 100
-                        st.write(f"• {pattern}: {count} ({percentage:.1f}%)")
-
-                with stat_col2:
-                    if "Trade Outcome" in filtered_df.columns:
-                        st.write("**Outcome Distribution:**")
-                        outcome_counts = filtered_df["Trade Outcome"].value_counts()
-                        for outcome, count in outcome_counts.items():
-                            percentage = (count / len(filtered_df)) * 100
-                            st.write(f"• {outcome}: {count} ({percentage:.1f}%)")
-
-        else:
-            st.warning("⚠️ No results match the selected filters.")
+        # Show file info
+        st.subheader("📁 File Information")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.info(f"**File Size:** {latest_file.stat().st_size / 1024:.2f} KB")
+        with col2:
+            mod_time = datetime.fromtimestamp(latest_file.stat().st_mtime)
+            st.info(f"**File Modified:** {mod_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        with col3:
+            st.info(f"**Rows × Columns:** {len(results_df)} × {len(results_df.columns)}")
 
         # Footer information
         st.divider()
         st.info("""
         📊 **Result Viewer Mode Information:**
-        - Results are pre-computed automatically every 4 hours
-        - This is a read-only view of the latest analysis results
-        - For full analysis capabilities, please use a standard account
+        - Results are generated by automated scheduler
+        - This is a read-only view of the latest analysis results  
+        - Data is updated automatically every few hours
         - Contact administrator for any questions or issues
         """)
 
-        # Auto-refresh option
-        auto_refresh = st.checkbox("Auto-refresh every 30 seconds", value=False, key="viewer_auto_refresh")
-
-        if auto_refresh:
-            time.sleep(30)
-            st.rerun()
-
+    except pd.errors.EmptyDataError:
+        st.error("❌ The results file is empty or corrupted.")
+        st.info("The scheduler may not have completed successfully. Please check back later.")
+    except pd.errors.ParserError as e:
+        st.error(f"❌ Error parsing CSV file: {str(e)}")
+        st.info("The file may be corrupted or have formatting issues. Try refreshing or contact administrator.")
+        st.code(f"File location: {latest_file.absolute()}")
+    except FileNotFoundError:
+        st.error("❌ Results file not found.")
+        st.info("The scheduler hasn't created results yet, or the file was moved/deleted.")
     except Exception as e:
-        st.error(f"❌ Error loading results: {str(e)}")
+        st.error(f"❌ Unexpected error loading results: {str(e)}")
         st.info("Please contact your administrator if this issue persists.")
+        st.code(f"Error details: {type(e).__name__}: {str(e)}")
 
 
 def create_sample_results():
@@ -8052,23 +7979,51 @@ def validate_live_entry_capability(df: pd.DataFrame, touches: List[SwingLowTouch
 
 
 def main():
-    """Main Professional AI Market Analysis Platform with Login and Date Picker Enhancement"""
-    # Get URL parameters
+    """Main Professional AI Market Analysis Platform with Result Viewer Mode - FIXED VERSION"""
+
+    # Get URL parameters FIRST, before any authentication
     params = st.query_params
 
-    # Check if viewer mode requested
+    # Handle URL-based viewer mode (?mode=viewer)
     if params.get("mode") == "viewer":
-        # Check viewer password
-        password = st.text_input("Viewer Password:", type="password")
+        st.set_page_config(
+            page_title="APEX AI - Analysis Results Viewer",
+            page_icon="📊",
+            layout="wide",
+            initial_sidebar_state="collapsed"
+        )
+        apply_professional_theme()
+
+        st.title("📊 APEX AI - Analysis Results Viewer")
+        st.markdown("**URL-based Viewer Access**")
+
+        # Simple password check for URL access
+        password = st.text_input("Viewer Password:", type="password", key="url_viewer_password")
         if password == "view123":
             render_cached_results_viewer()
+        elif password:  # Only show error if password was entered
+            st.error("❌ Invalid viewer password")
         else:
-            st.error("Invalid viewer password")
-        return
-    # Check authentication first
+            st.info("Please enter the viewer password to access results")
+        return  # CRITICAL: Stop here for URL-based viewer mode
+
+    # Normal authentication flow for logged-in users
     check_login()
 
-    # After authentication, set the wide layout
+    # CRITICAL CHECK: If authenticated user is a viewer account, show ONLY CSV viewer
+    if st.session_state.get('is_viewer', False):
+        # Viewer accounts get CSV-only interface
+        st.set_page_config(
+            page_title="APEX AI - Analysis Results Viewer",
+            page_icon="📊",
+            layout="wide",
+            initial_sidebar_state="collapsed"
+        )
+        render_cached_results_viewer()
+        return  # STOP HERE - Viewer accounts cannot access full platform
+
+    # ONLY FULL ACCESS USERS (Arthur with trapezoid password) CONTINUE BELOW
+    # Set page config for full platform
     st.set_page_config(
         page_title="🚀 APEX AI Technical Analysis Platform",
         page_icon="🚀",
@@ -8080,7 +8035,7 @@ def main():
     init_session_state()
     apply_professional_theme()
 
-    # Professional main title - Updated branding
+    # Professional main title
     st.title("🚀 APEX AI TECHNICAL ANALYSIS PLATFORM")
     st.markdown(
         "**Advanced Technical Analysis: AI-Powered Pattern Recognition + Smart Capital Management + Real-Time Processing + Professional Features 📊🧠**")
@@ -8308,7 +8263,7 @@ def main():
 
         if st.button("🧹 Reset Session", use_container_width=True):
             for key in list(st.session_state.keys()):
-                if key not in ['file_manager', 'authenticated']:  # Keep file manager and auth
+                if key not in ['file_manager', 'authenticated', 'login_username', 'is_viewer']:  # Keep essential keys
                     del st.session_state[key]
             st.success("Session reset!")
             st.rerun()
