@@ -45,9 +45,23 @@ def convert_to_ist(timestamp):
     if isinstance(timestamp, str):
         timestamp = pd.Timestamp(timestamp)
 
-    if timestamp.tz is None:
-        # Assume UTC if no timezone
-        timestamp = pytz.UTC.localize(timestamp)
+    # Handle both datetime.datetime and pandas.Timestamp
+    if hasattr(timestamp, 'tzinfo'):
+        # Standard datetime object
+        if timestamp.tzinfo is None:
+            # Assume UTC if no timezone
+            timestamp = pytz.UTC.localize(timestamp)
+    elif hasattr(timestamp, 'tz'):
+        # Pandas Timestamp
+        if timestamp.tz is None:
+            # Assume UTC if no timezone
+            timestamp = timestamp.tz_localize('UTC')
+    else:
+        # Fallback - assume UTC
+        try:
+            timestamp = pytz.UTC.localize(timestamp)
+        except:
+            timestamp = pd.Timestamp(timestamp).tz_localize('UTC')
 
     ist = pytz.timezone('Asia/Kolkata')
     return timestamp.astimezone(ist)
@@ -63,53 +77,25 @@ def format_ist_timestamp(timestamp=None):
     return timestamp.strftime('%Y-%m-%d %H:%M:%S IST')
 
 
-def save_analysis_results_to_scheduler_format(results):
-    """Save analysis results in the same format as scheduler for viewer access"""
-    if not results:
-        return None
+def safe_convert_to_ist(timestamp):
+    """Safely convert timestamp to IST with error handling"""
+    try:
+        return convert_to_ist(timestamp)
+    except Exception as e:
+        # If conversion fails, return current IST time
+        print(f"Warning: Timestamp conversion failed: {e}")
+        return get_ist_now()
 
-    # Create scheduled_results directory
-    results_dir = Path("scheduled_results")
-    results_dir.mkdir(exist_ok=True)
 
-    # Convert results to DataFrame and add IST timestamps
-    results_df = pd.DataFrame(results)
-
-    # Convert all timestamps to IST
-    timestamp_columns = ['Pattern Date', 'Swing Low Date', 'Last Update']
-    for col in timestamp_columns:
-        if col in results_df.columns:
-            results_df[col] = results_df[col].apply(
-                lambda x: format_ist_timestamp(x) if pd.notna(x) and x != 'N/A' else x
-            )
-
-    # Add analysis timestamp in IST
-    results_df['Analysis Time'] = format_ist_timestamp()
-
-    # Save to latest_results.csv (same as scheduler)
-    latest_file = results_dir / "latest_results.csv"
-    results_df.to_csv(latest_file, index=False)
-
-    # Also save timestamped version
-    timestamp = get_ist_now().strftime('%Y%m%d_%H%M%S')
-    timestamped_file = results_dir / f"analysis_{timestamp}.csv"
-    results_df.to_csv(timestamped_file, index=False)
-
-    # Save metadata
-    metadata = {
-        'last_run': get_ist_now().isoformat(),
-        'result_count': len(results),
-        'status': 'success',
-        'timeframe': '4H',  # or get from analysis parameters
-        'analysis_type': 'manual_comprehensive',
-        'timezone': 'Asia/Kolkata'
-    }
-
-    metadata_file = results_dir / "metadata.json"
-    with open(metadata_file, 'w') as f:
-        json.dump(metadata, f, indent=2)
-
-    return latest_file, timestamped_file
+def safe_format_ist_timestamp(timestamp):
+    """Safely format timestamp in IST with error handling"""
+    try:
+        if pd.isna(timestamp) or timestamp in ['N/A', '']:
+            return 'N/A'
+        return format_ist_timestamp(timestamp)
+    except Exception as e:
+        print(f"Warning: Timestamp formatting failed: {e}")
+        return 'N/A'
 def check_login():
     """Handle login authentication - Enhanced with viewer support"""
     if 'authenticated' not in st.session_state:
