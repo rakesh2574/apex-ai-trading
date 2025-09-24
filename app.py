@@ -252,7 +252,7 @@ def check_results_viewer_login():
 
 
 def render_cached_results_viewer():
-    """Complete result viewer interface for client accounts with IST timezone support"""
+    """Complete result viewer interface for client accounts with IST timezone support and debugging"""
 
     # Apply professional theme
     apply_professional_theme()
@@ -288,7 +288,7 @@ def render_cached_results_viewer():
     latest_file = results_dir / "latest_results.csv"
     metadata_file = results_dir / "metadata.json"
 
-    # If no results exist, show message and create sample
+    # If no results exist, show message and debugging options
     if not latest_file.exists():
         st.warning("⚠️ No analysis results available yet.")
         st.info("📋 The automated scheduler or manual analysis hasn't generated results yet.")
@@ -296,34 +296,126 @@ def render_cached_results_viewer():
         # Show expected file location
         st.code(f"Expected file: {latest_file.absolute()}")
 
-        # Create sample data for demonstration
-        if st.button("🧪 Generate Sample Data for Testing"):
-            sample_results = create_sample_results()
-            sample_df = pd.DataFrame(sample_results)
+        # Debug section
+        col_debug1, col_debug2 = st.columns(2)
 
-            # Convert sample timestamps to IST
-            for col in ['Pattern Date', 'Swing Low Date']:
-                if col in sample_df.columns:
-                    sample_df[col] = sample_df[col].apply(lambda x: format_ist_timestamp())
+        with col_debug1:
+            # Create sample data for demonstration
+            if st.button("🧪 Generate Sample Data for Testing"):
+                sample_results = create_sample_results()
+                sample_df = pd.DataFrame(sample_results)
 
-            sample_df['Analysis Time'] = format_ist_timestamp()
-            sample_df.to_csv(latest_file, index=False)
+                # Convert sample timestamps to IST
+                for col in ['Pattern Date', 'Swing Low Date']:
+                    if col in sample_df.columns:
+                        sample_df[col] = sample_df[col].apply(lambda x: format_ist_timestamp())
 
-            # Create sample metadata with IST
-            sample_metadata = {
-                'last_run': get_ist_now().isoformat(),
-                'result_count': len(sample_results),
-                'status': 'sample_data',
-                'timeframe': '4H',
-                'timezone': 'Asia/Kolkata'
-            }
+                sample_df['Analysis Time'] = format_ist_timestamp()
+                sample_df.to_csv(latest_file, index=False)
 
-            with open(metadata_file, 'w') as f:
-                json.dump(sample_metadata, f, indent=2)
+                # Create sample metadata with IST
+                sample_metadata = {
+                    'last_run': get_ist_now().isoformat(),
+                    'result_count': len(sample_results),
+                    'status': 'sample_data',
+                    'timeframe': '4H',
+                    'timezone': 'Asia/Kolkata'
+                }
 
-            st.success("✅ Sample results created with IST timestamps. Refreshing...")
-            time.sleep(1)
-            st.rerun()
+                with open(metadata_file, 'w') as f:
+                    json.dump(sample_metadata, f, indent=2)
+
+                st.success("✅ Sample results created with IST timestamps. Refreshing...")
+                time.sleep(1)
+                st.rerun()
+
+        with col_debug2:
+            # Debug file system
+            if st.button("🔍 Debug File System"):
+                st.write("**Debug Information:**")
+
+                # Check current working directory
+                import os
+                st.write(f"**Current working directory:** `{os.getcwd()}`")
+
+                # List all files in current directory
+                st.write("**Files in current directory:**")
+                try:
+                    items = os.listdir(".")
+                    for item in sorted(items):
+                        if os.path.isfile(item):
+                            size = os.path.getsize(item)
+                            st.write(f"📄 {item} ({size:,} bytes)")
+                        else:
+                            st.write(f"📁 {item}/")
+                except Exception as e:
+                    st.error(f"Error listing directory: {e}")
+
+                # Check if scheduled_results exists and list contents
+                if results_dir.exists():
+                    st.write(f"**Contents of `{results_dir}`:**")
+                    try:
+                        items = list(results_dir.iterdir())
+                        if items:
+                            for item in sorted(items):
+                                if item.is_file():
+                                    file_size = item.stat().st_size
+                                    mod_time = datetime.fromtimestamp(item.stat().st_mtime)
+                                    st.write(f"📄 {item.name} ({file_size:,} bytes, modified: {mod_time})")
+                                else:
+                                    st.write(f"📁 {item.name}/")
+                        else:
+                            st.write("Directory exists but is empty")
+                    except Exception as e:
+                        st.error(f"Error reading directory: {e}")
+                else:
+                    st.write(f"❌ `{results_dir}` directory does not exist")
+
+                # Check data_cache directory
+                cache_dir = Path("data_cache")
+                if cache_dir.exists():
+                    st.write(f"**Contents of `data_cache` (first 10 files):**")
+                    try:
+                        cache_files = list(cache_dir.iterdir())[:10]
+                        for item in cache_files:
+                            if item.is_file():
+                                file_size = item.stat().st_size
+                                st.write(f"📄 {item.name} ({file_size:,} bytes)")
+                            else:
+                                st.write(f"📁 {item.name}/")
+                    except Exception as e:
+                        st.error(f"Error reading cache directory: {e}")
+                else:
+                    st.write("❌ `data_cache` directory does not exist")
+
+                # Check environment info
+                st.write("**Environment Information:**")
+                st.write(f"- Python executable: `{sys.executable if 'sys' in globals() else 'Unknown'}`")
+                st.write(f"- Platform: `{os.name}`")
+
+                # Check if this is Streamlit Cloud
+                if os.path.exists("/mount/src"):
+                    st.write("- Environment: **Streamlit Cloud** ☁️")
+                else:
+                    st.write("- Environment: **Local/Other**")
+
+                # Check recent commits (if .git exists)
+                git_dir = Path(".git")
+                if git_dir.exists():
+                    st.write("**Git Repository Status:**")
+                    try:
+                        import subprocess
+                        result = subprocess.run(['git', 'log', '--oneline', '-5'],
+                                                capture_output=True, text=True, cwd='.')
+                        if result.returncode == 0:
+                            st.code(result.stdout)
+                        else:
+                            st.write("Could not read git log")
+                    except Exception as e:
+                        st.write(f"Git not available: {e}")
+                else:
+                    st.write("- Git repository: Not detected")
+
         return
 
     # Load and display results with comprehensive error handling
@@ -561,7 +653,7 @@ def render_cached_results_viewer():
             st.info(f"**File Size:** {latest_file.stat().st_size / 1024:.2f} KB")
         with col2:
             mod_time = datetime.fromtimestamp(latest_file.stat().st_mtime)
-            ist_mod_time = convert_to_ist(mod_time)
+            ist_mod_time = safe_convert_to_ist(mod_time)
             st.info(f"**File Modified:** {ist_mod_time.strftime('%Y-%m-%d %H:%M:%S IST')}")
         with col3:
             st.info(f"**Rows × Columns:** {len(results_df)} × {len(results_df.columns)}")
