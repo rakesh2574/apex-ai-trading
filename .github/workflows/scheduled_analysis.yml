@@ -1,51 +1,37 @@
-name: Scheduled Analysis
+name: Scheduled APEX AI Analysis
+
 on:
   schedule:
-    - cron: '0 */1 * * *'  # Every 6 hours
-  workflow_dispatch:
+    # Run every 4 hours during market hours (IST 9:00 AM to 5:00 PM)
+    - cron: '30 3,7,11 * * 1-5'  # 9:00 AM, 1:00 PM, 5:00 PM IST (Mon-Fri)
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
   run-analysis:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write  # Add this line
 
     steps:
-    - uses: actions/checkout@v3
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-    - name: Install dependencies
-      run: |
-        pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          pip install streamlit pandas numpy pytz
+          pip install git+https://github.com/dewkul/tvDatafeed.git@main
 
-    - name: Set IST timezone
-      run: |
-        echo "TZ=Asia/Kolkata" >> $GITHUB_ENV
+      - name: Run scheduler
+        run: |
+          python scheduler.py
 
-    - name: Run scheduled analysis
-      run: |
-        python scheduler.py
-
-    - name: Check if files were created
-      run: |
-        ls -la scheduled_results/ || echo "scheduled_results directory not found"
-        ls -la || echo "Current directory listing failed"
-
-    - name: Commit and push results
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add -A
-        if git diff --staged --quiet; then
-          echo "No changes to commit"
-        else
-          git commit -m "Auto-update analysis results $(date '+%Y-%m-%d %H:%M:%S IST')"
+      - name: Commit and push results
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add scheduled_results/
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update analysis results - $(date +'%Y-%m-%d %H:%M:%S IST')"
           git push
-        fi

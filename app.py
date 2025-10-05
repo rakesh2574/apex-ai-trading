@@ -33,6 +33,40 @@ except ImportError:
 import pytz
 
 
+def save_analysis_results_to_scheduler_format(results):
+    """Save analysis results in format compatible with viewer mode"""
+    from pathlib import Path
+    import json
+
+    results_dir = Path("scheduled_results")
+    results_dir.mkdir(exist_ok=True)
+
+    # Convert results to DataFrame
+    results_df = pd.DataFrame(results)
+
+    # Save as latest_results.csv (overwrite)
+    latest_file = results_dir / "latest_results.csv"
+    results_df.to_csv(latest_file, index=False)
+
+    # Also save timestamped version
+    ist_timestamp = get_ist_now().strftime('%Y%m%d_%H%M%S')
+    timestamped_file = results_dir / f"analysis_{ist_timestamp}.csv"
+    results_df.to_csv(timestamped_file, index=False)
+
+    # Save metadata
+    metadata = {
+        'last_run': get_ist_now().isoformat(),
+        'result_count': len(results),
+        'status': 'success',
+        'timeframe': st.session_state.get('selected_timeframes', ['4H'])[0],
+        'timezone': 'Asia/Kolkata'
+    }
+
+    metadata_file = results_dir / "metadata.json"
+    with open(metadata_file, 'w') as f:
+        json.dump(metadata, f, indent=2)
+
+    return latest_file, timestamped_file
 def get_ist_now():
     """Get current time in IST"""
     utc = pytz.UTC
@@ -6736,18 +6770,18 @@ def display_analysis_results():
     if results:
         try:
             latest_file, timestamped_file = save_analysis_results_to_scheduler_format(results)
-            st.success(f"✅ Results saved for viewer access: {latest_file.name}")
-            st.info(f"📁 Timestamped backup: {timestamped_file.name}")
-            st.info(f"🕐 All timestamps converted to Indian Standard Time (IST)")
+            st.success(f"Results saved for viewer access: {latest_file.name}")
+            st.info(f"Timestamped backup: {timestamped_file.name}")
+            st.info(f"All timestamps converted to Indian Standard Time (IST)")
         except Exception as e:
-            st.error(f"❌ Error saving results: {e}")
+            st.error(f"Error saving results: {e}")
 
     # Check for today's patterns
     today_patterns = [r for r in results if r.get("Is Today's Pattern") == "YES"]
     today_count = len(today_patterns)
 
     # Enhanced header with customizable detection info and IST time
-    st.subheader(f"📊 Analysis Results - Generated at {format_ist_timestamp()}")
+    st.subheader(f"Analysis Results - Generated at {format_ist_timestamp()}")
 
     # Show detection parameters and validation summary
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -6781,27 +6815,27 @@ def display_analysis_results():
     filtered_count = debug_info.get('historical_trades_filtered', 0)
     if filtered_count > 0:
         st.warning(
-            f"⚠️ **Filtered {filtered_count} historical trades** that wouldn't have been detectable as live entries with {left_lookback}+{right_lookback} bar detection.")
-        st.info("💡 This filtering ensures your backtest results match what you can achieve in live trading.")
+            f"Filtered {filtered_count} historical trades that wouldn't have been detectable as live entries with {left_lookback}+{right_lookback} bar detection.")
+        st.info("This filtering ensures your backtest results match what you can achieve in live trading.")
 
     st.success(
-        f"✅ **All {len(results)} results shown are live-detectable** using {left_lookback}+{right_lookback} customizable swing low detection.")
+        f"All {len(results)} results shown are live-detectable using {left_lookback}+{right_lookback} customizable swing low detection.")
 
     if today_count > 0:
         st.success(
-            f"🎯 **Found {today_count} real-time patterns from TODAY!** These represent live trading opportunities.")
+            f"Found {today_count} real-time patterns from TODAY! These represent live trading opportunities.")
 
     # Show entry mode if available
     pattern_only_mode = debug_info.get('pattern_only_entry', False)
     if pattern_only_mode:
-        st.info("🟡 **Pattern-Only Entry Mode**: Trading on pattern formation alone (no swing low requirement)")
+        st.info("Pattern-Only Entry Mode: Trading on pattern formation alone (no swing low requirement)")
     else:
-        st.info("🟢 **Pattern + Swing Touch Mode**: Traditional mode requiring swing low validation")
+        st.info("Pattern + Swing Touch Mode: Traditional mode requiring swing low validation")
 
     st.divider()
 
     # Professional Capital Management Section
-    st.subheader("💰 Advanced Capital Management")
+    st.subheader("Advanced Capital Management")
 
     col1, col2, col3 = st.columns([2, 1, 1])
 
@@ -6816,9 +6850,9 @@ def display_analysis_results():
         )
 
     with col2:
-        if st.button("🔄 Recalculate P&L", type="primary", use_container_width=True):
+        if st.button("Recalculate P&L", type="primary", use_container_width=True):
             st.session_state.global_capital = new_capital
-            st.success("✅ P&L recalculated for live-detectable trades!")
+            st.success("P&L recalculated for live-detectable trades!")
             st.rerun()
 
     with col3:
@@ -6861,12 +6895,12 @@ def display_analysis_results():
     for col in timestamp_columns:
         if col in results_df.columns:
             results_df[col] = results_df[col].apply(
-                lambda x: format_ist_timestamp(x) if pd.notna(x) and x != 'N/A' else x
+                lambda x: safe_format_ist_timestamp(x) if pd.notna(x) and x != 'N/A' else x
             )
 
     # Today's Patterns Summary
     if today_count > 0:
-        st.subheader("🎯 Today's Real-Time Pattern Opportunities (Live Detectable)")
+        st.subheader(f"Today's Real-Time Pattern Opportunities (Live Detectable)")
 
         today_df = results_df[results_df["Is Today's Pattern"] == "YES"]
 
@@ -6910,7 +6944,7 @@ def display_analysis_results():
         st.divider()
 
     # Professional Pattern Performance Summary
-    st.subheader("🧠 AI Pattern Performance Analysis (Live-Detectable Only)")
+    st.subheader("AI Pattern Performance Analysis (Live-Detectable Only)")
 
     # Get all unique patterns from results
     patterns = results_df['Pattern Type'].unique()
@@ -6954,7 +6988,7 @@ def display_analysis_results():
         tf_today_count = len(tf_data[tf_data["Is Today's Pattern"] == "YES"])
 
         st.subheader(
-            f"📊 {timeframe} Timeframe Analysis (Live-Detectable with {left_lookback}+{right_lookback} Detection)")
+            f"{timeframe} Timeframe Analysis (Live-Detectable with {left_lookback}+{right_lookback} Detection)")
 
         # Enhanced Metrics
         col1, col2, col3, col4, col5, col6, col7, col8 = st.columns(8)
@@ -7023,7 +7057,7 @@ def display_analysis_results():
         st.divider()
 
     # Overall portfolio summary
-    st.subheader("🏆 Professional Portfolio Summary (Live-Detectable Trades Only)")
+    st.subheader("Professional Portfolio Summary (Live-Detectable Trades Only)")
     col1, col2, col3, col4, col5, col6 = st.columns(6)
 
     with col1:
@@ -7057,7 +7091,7 @@ def display_analysis_results():
         st.metric("Today's Patterns", today_count)
 
     # Complete Results for Download
-    st.subheader("📋 Complete Live-Detectable Analysis Report")
+    st.subheader("Complete Live-Detectable Analysis Report")
 
     # Use only existing columns for final display
     final_desired_columns = [
@@ -7067,7 +7101,7 @@ def display_analysis_results():
         'Strength/Ratio', 'Bullish', 'Trade Outcome', 'Current Status', 'Target Used',
         'Detection Mode', 'Capital Invested', 'P&L', 'ROI %',
         'Target Price', 'Stop Loss', 'Current Price', 'Max Profit %', 'Max Drawdown %',
-        'Bars to Resolution', 'Resolution Type', 'Last Update', 'Analysis Time'
+        'Bars to Resolution', 'Resolution Type', 'Last Update'
     ]
 
     complete_available_columns = [col for col in final_desired_columns if col in results_df.columns]
@@ -7078,16 +7112,16 @@ def display_analysis_results():
 
     # Final summary message
     st.success(
-        f"✅ **Analysis Complete**: {len(results)} live-detectable opportunities found using {left_lookback}+{right_lookback} customizable swing low detection. All results can be detected in real-time trading.")
+        f"Analysis Complete: {len(results)} live-detectable opportunities found using {left_lookback}+{right_lookback} customizable swing low detection. All results can be detected in real-time trading.")
 
     filtered_count = debug_info.get('historical_trades_filtered', 0)
     if filtered_count > 0:
         st.info(
-            f"💡 **Quality Assurance**: {filtered_count} historical trades were automatically filtered out to ensure all results are achievable in live trading.")
+            f"Quality Assurance: {filtered_count} historical trades were automatically filtered out to ensure all results are achievable in live trading.")
 
     # Show IST timezone info
     st.info(
-        f"🕐 **Timezone**: All timestamps displayed in Indian Standard Time (IST). Generated at {format_ist_timestamp()}")
+        f"Timezone: All timestamps displayed in Indian Standard Time (IST). Generated at {format_ist_timestamp()}")
     # Enhanced trade outcome display logic with trailing stops
     def get_trade_outcome_display(outcome):
         """Get enhanced trade outcome display with trailing stop support"""
@@ -8294,6 +8328,96 @@ def validate_live_entry_capability(df: pd.DataFrame, touches: List[SwingLowTouch
     return validated_touches
 
 
+def render_ascending_trendline_tab():
+    """NEW: Ascending trendline support analysis - connects swing higher lows"""
+    st.header("📐 Ascending Trendline Analysis (NEW)")
+
+    st.markdown("""
+    <div class="feature-highlight">
+    <h3 style="color: #0066cc; margin: 0;">🆕 NEW FEATURE: Ascending Trendline Support</h3>
+    <p style="color: #5a6c7d; margin: 5px 0;">
+    ✅ Connects swing higher lows | ✅ Identifies uptrend support | ✅ Pattern detection at trendline | ✅ Dynamic support levels
+    </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.info("""
+    **📐 How Ascending Trendline Works:**
+
+    Unlike horizontal support (which finds a single price level), ascending trendlines:
+    - Connect consecutive **swing higher lows** forming an upward slope
+    - Identify **dynamic support** that rises over time
+    - Detect patterns when price returns to this rising trendline
+    - Confirm bullish momentum with higher low structure
+
+    **Use Cases:**
+    - Strong uptrends with pullbacks
+    - Breakout continuation trades
+    - Trend-following strategies
+    """)
+
+    st.warning("⚠️ **Status**: Feature in Development")
+    st.write("""
+    This tab will contain:
+    1. **Swing Higher Low Detection** - Identify ascending swing points
+    2. **Trendline Calculation** - Connect higher lows with regression line
+    3. **Touch Detection** - Find patterns touching the ascending trendline
+    4. **Combined Strategy** - Use both horizontal and ascending support
+    """)
+
+    # Placeholder for future implementation
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.subheader("⚙️ Configuration")
+        st.write("**Trendline Parameters:**")
+        min_touchpoints = st.number_input("Min Touch Points", 2, 10, 3,
+                                          help="Minimum swing lows needed to form trendline")
+        max_deviation = st.slider("Max Deviation %", 0.1, 5.0, 1.0, 0.1,
+                                  help="Maximum allowed deviation from trendline")
+        min_slope = st.number_input("Min Slope (degrees)", 0.0, 45.0, 5.0,
+                                    help="Minimum upward angle required")
+
+    with col2:
+        st.subheader("📊 Detection Method")
+        st.write("**Swing Higher Low Criteria:**")
+        st.write("• Each low must be higher than previous")
+        st.write("• Minimum time gap between lows")
+        st.write("• Regression line through touch points")
+        st.write("• Pattern detection at trendline touch")
+
+    with col3:
+        st.subheader("🎯 Pattern Integration")
+        st.write("**Combined Strategy:**")
+        st.write("• Use horizontal AND ascending")
+        st.write("• Higher probability setups")
+        st.write("• Multiple timeframe confirmation")
+        st.write("• Dynamic target adjustment")
+
+    st.divider()
+
+    st.info("""
+    **📝 Implementation Plan:**
+
+    Phase 1: Core Detection (Next Update)
+    - Implement swing higher low finder
+    - Calculate trendline via linear regression
+    - Basic touch detection
+
+    Phase 2: Pattern Integration
+    - Combine with existing patterns
+    - Add to main analysis pipeline
+    - Backtesting with historical data
+
+    Phase 3: Advanced Features
+    - Multiple trendline tracking
+    - Auto trend strength rating
+    - Breakout/breakdown detection
+    """)
+
+    if st.button("🔔 Notify Me When Ready", use_container_width=True):
+        st.success("✅ You'll be notified when Ascending Trendline feature is released!")
+
 def main():
     """Main Professional AI Market Analysis Platform with Result Viewer Mode - FIXED VERSION"""
 
@@ -8374,13 +8498,14 @@ def main():
     """, unsafe_allow_html=True)
 
     # Create professional application tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "🔄 Data Management",
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+        "📄 Data Management",
         "📊 AI Pattern Analysis",
         "💰 Capital Simulation",
         "🔴 Real-Time Monitoring",
         "⚙️ AI Configuration",
-        "📈 Analytics Dashboard"
+        "📈 Analytics Dashboard",
+        "📐 Ascending Trendline"  # NEW TAB
     ])
 
     with tab1:
@@ -8440,6 +8565,9 @@ def main():
                     st.metric("Today's Patterns", st.session_state.debug_info.get('today_patterns_detected', 0))
         else:
             st.info("No analytics data available. Run an AI analysis to see professional performance metrics.")
+
+    with tab7:
+        render_ascending_trendline_tab()
 
     # Professional sidebar with logout button
     with st.sidebar:
